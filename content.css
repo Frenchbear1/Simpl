@@ -815,14 +815,15 @@ simpl-youtube-preview[data-state="closing"] .simpl-youtube-preview-backdrop {
   padding: 0 14px 0 20px;
   border-radius: 19px !important;
   color: #fff;
-  background: rgba(255, 255, 255, 0.14) !important;
+  background: transparent !important;
   font: 500 15px/1 Roboto, Arial, sans-serif;
   transform: translateX(-50%);
   transition: background 120ms ease;
 }
 
-.simpl-youtube-preview-recs-toggle:hover {
-  background: rgba(255, 255, 255, 0.22) !important;
+.simpl-youtube-preview-recs-toggle:hover,
+.simpl-youtube-preview-recs-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.18) !important;
 }
 
 .simpl-youtube-preview-recs-toggle svg {
