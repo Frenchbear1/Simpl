@@ -119,13 +119,23 @@ simpl-youtube-preview * {
   pointer-events: none !important;
 }
 
-/* Lift captions above the control bar while it is showing. */
+/* Lift captions clear of the control bar while it is showing. */
 .simpl-youtube-preview-media .html5-video-player .ytp-caption-window-container {
-  transition: transform 180ms ease;
+  z-index: 5 !important;
+  translate: 0 0;
+  transition: translate 180ms ease;
 }
 
 simpl-youtube-preview[data-controls="visible"] .simpl-youtube-preview-media .html5-video-player .ytp-caption-window-container {
-  transform: translateY(-56px);
+  translate: 0 -84px;
+}
+
+/* The viewer, not YouTube, owns pointer input, so the moved player can never
+   change its own layout when the controls show or hide. */
+.simpl-youtube-preview-media > .html5-video-player,
+.simpl-youtube-preview-media > ytd-player,
+.simpl-youtube-preview-media > ytd-player .html5-video-player {
+  pointer-events: none !important;
 }
 
 .simpl-youtube-preview-poster {
@@ -505,6 +515,14 @@ simpl-youtube-preview[data-controls="hidden"] .simpl-youtube-preview-media {
   border-radius: 50% !important;
   font: 700 13px/1 Roboto, Arial, sans-serif !important;
   letter-spacing: 0.2px;
+}
+
+.simpl-youtube-preview-cc {
+  opacity: 0.7;
+}
+
+.simpl-youtube-preview-cc[data-active="true"] {
+  opacity: 1;
 }
 
 .simpl-youtube-preview-cc::after {

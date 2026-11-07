@@ -23,7 +23,7 @@
   ].join(",");
   const PREVIEW_WAIT_MS = 5000;
   const ANIMATION_MS = 380;
-  const CONTROLS_HIDE_MS = 2400;
+  const CONTROLS_HIDE_MS = 1100;
   const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   const PREFS_KEY = "simpl_youtube_viewer_prefs";
   const PLAYER_COMMAND_EVENT = "simpl-youtube-player-command";
@@ -388,7 +388,8 @@
       session.video &&
       !session.video.paused &&
       session.ui.settingsMenu.hidden &&
-      !session.scrubbing
+      !session.scrubbing &&
+      !session.overControls
     ) {
       session.controlsTimer = setTimeout(() => {
         session.root.dataset.controls = "hidden";
@@ -578,8 +579,6 @@
       return;
     }
     const captions = status.captions || {};
-    const nativeAvailable = captions.available === true;
-    session.ui.cc.disabled = !nativeAvailable && !(session.video?.textTracks?.length > 0);
     if (session.captionsPending === null) {
       setCaptionButton(session, captions.enabled === true || textTrackCaptionsEnabled(session));
     }
@@ -665,9 +664,6 @@
   };
 
   const toggleCaptions = (session) => {
-    if (session.ui.cc.disabled) {
-      return;
-    }
     const wanted = session.ui.cc.getAttribute("aria-pressed") !== "true";
     setCaptions(session, wanted);
     showToast(session, wanted ? "Subtitles on" : "Subtitles off");
@@ -837,6 +833,7 @@
       session.ui.mute,
       session.ui.volume,
       session.ui.settingsButton,
+      session.ui.cc,
       session.ui.fullscreen
     ]) {
       control.disabled = false;
@@ -1102,6 +1099,7 @@
       qualityApplied: false,
       captionsApplied: false,
       scrubbing: false,
+      overControls: false,
       userPaused: false,
       userSetMute: false,
       unmuteAttempts: 0,
@@ -1195,8 +1193,18 @@
     });
     on(ui.pip, "click", () => togglePictureInPicture(session));
     on(ui.fullscreen, "click", () => setFullscreen(session));
-    on(ui.media, "mousemove", () => setControlsVisible(session, true));
-    on(ui.media, "mouseleave", () => setControlsVisible(session, false));
+    on(ui.media, "mousemove", (event) => {
+      session.overControls = Boolean(
+        event.target.closest?.(".simpl-youtube-preview-controls, .simpl-youtube-preview-topbar")
+      );
+      setControlsVisible(session, true);
+    });
+    on(ui.media, "mouseleave", () => {
+      session.overControls = false;
+      if (session.video && !session.video.paused && ui.settingsMenu.hidden) {
+        setControlsVisible(session, false);
+      }
+    });
     on(ui.media, "click", (event) => {
       if (!ui.settingsMenu.hidden && !event.target.closest(".simpl-youtube-preview-settings-wrap")) {
         event.preventDefault();
