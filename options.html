@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Simpl Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Simpl</h1>
+        <p>Hidden elements, website settings, and activity</p>
+      </div>
+      <div class="top-actions">
+        <button id="exportData" type="button">Export</button>
+        <label class="import">
+          Import
+          <input id="importData" type="file" accept="application/json">
+        </label>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sites-panel">
+        <label class="search-label" for="siteSearch">Search websites</label>
+        <input id="siteSearch" type="search" placeholder="example.com">
+        <div id="siteList" class="site-list"></div>
+      </aside>
+
+      <section class="detail-panel">
+        <div id="emptyState" class="empty-state">
+          Select a website to manage its hidden items and settings.
+        </div>
+
+        <article id="siteDetail" class="site-detail" hidden>
+          <div class="site-heading">
+            <div>
+              <h2 id="detailHost"></h2>
+              <p id="detailMeta"></p>
+            </div>
+            <button id="removeSite" class="danger" type="button">Remove Website</button>
+          </div>
+
+          <section id="youtubeSettings" class="youtube-settings" hidden>
+            <h3>YouTube settings</h3>
+            <div class="setting-row">
+              <div>
+                <label class="toggle" for="youtubePreviewEnabled">
+                  <input id="youtubePreviewEnabled" type="checkbox">
+                  <span>Open video previews</span>
+                </label>
+                <p>Open standard video cards in a near-full-screen preview instead of navigating.</p>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div>
+                <label class="toggle" for="youtubeAdFiltersEnabled">
+                  <input id="youtubeAdFiltersEnabled" type="checkbox">
+                  <span>Use ad filters on YouTube</span>
+                </label>
+                <p>Global ad filters remain active on other websites when this is off.</p>
+              </div>
+            </div>
+          </section>
+
+          <div class="rule-tools">
+            <button id="addRule" type="button">Add Selector</button>
+            <button id="disableAll" type="button">Disable All</button>
+            <button id="enableAll" type="button">Enable All</button>
+          </div>
+
+          <div id="rulesList" class="rules-list"></div>
+
+        </article>
+
+        <section class="activity">
+          <div class="activity-heading">
+            <h2>Activity Log</h2>
+            <button id="clearLog" type="button">Clear Log</button>
+          </div>
+          <div id="activityList" class="activity-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="siteButtonTemplate">
+      <button class="site-button" type="button">
+        <span class="site-host"></span>
+        <span class="site-count"></span>
+      </button>
+    </template>
+
+    <template id="ruleTemplate">
+      <div class="rule-row">
+        <label class="toggle">
+          <input class="rule-enabled" type="checkbox">
+          <span>Enabled</span>
+        </label>
+        <input class="rule-selector" type="text" spellcheck="false">
+        <button class="save-rule" type="button">Save</button>
+        <button class="delete-rule danger" type="button">Delete</button>
+      </div>
+    </template>
+
+    <script src="options.js"></script>
+  </body>
+</html>

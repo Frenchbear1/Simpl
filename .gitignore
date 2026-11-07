@@ -1,0 +1,15 @@
+# Chrome-generated when loading the unpacked extension
+_metadata/
+
+# Secrets and local env
+.env
+.env.*
+*.pem
+*.key
+
+# OS / editor / deps
+.DS_Store
+Thumbs.db
+node_modules/
+*.crx
+*.zip
