@@ -644,13 +644,16 @@
       languageCode: track?.languageCode || prefs.captionLanguage || ""
     });
 
-    if (!result) {
-      // Page bridge unavailable: fall back to the media element's text tracks.
-      const tracks = Array.from(session.video?.textTracks || []);
+    const tracks = Array.from(session.video?.textTracks || []);
+    if ((!result || !result.status?.api) && tracks.length > 0) {
+      // No player API to drive: fall back to the media element's text tracks.
       tracks.forEach((item, index) => {
         item.mode = wanted && index === 0 ? "showing" : "disabled";
       });
       setCaptionButton(session, textTrackCaptionsEnabled(session));
+      return;
+    }
+    if (!result) {
       return;
     }
 
@@ -1277,7 +1280,10 @@
       }
       return;
     }
-    if (editing || !session.video || event.ctrlKey || event.metaKey || event.altKey) {
+    // Focused sliders keep their native arrow/Home/End behavior.
+    const onRange = event.target.matches?.("input[type='range']") &&
+      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key);
+    if (editing || onRange || !session.video || event.ctrlKey || event.metaKey || event.altKey) {
       return;
     }
 

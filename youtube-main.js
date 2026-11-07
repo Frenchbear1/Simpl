@@ -214,6 +214,7 @@
     tiny: 144
   };
   let cachedCaptionTracks = [];
+  let cachedCaptionVideoId = "";
 
   const hasPlayerApi = (candidate) => (
     Boolean(candidate) &&
@@ -281,6 +282,13 @@
   );
 
   const readCaptionTracks = (api) => {
+    // The cache only bridges the moment the captions module is loading; never
+    // let it leak from one video into the next.
+    const videoId = safeCall(() => api.getVideoData().video_id, "") || "";
+    if (videoId !== cachedCaptionVideoId) {
+      cachedCaptionVideoId = videoId;
+      cachedCaptionTracks = [];
+    }
     let tracks = safeCall(() => api.getOption("captions", "tracklist"), []);
     if (!Array.isArray(tracks) || tracks.length === 0) {
       const response = safeCall(() => api.getPlayerResponse(), null);
