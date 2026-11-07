@@ -347,6 +347,7 @@
     const button = nativeCaptionButton();
     return {
       api: true,
+      videoId: safeCall(() => api.getVideoData().video_id, "") || "",
       captions: {
         available: tracks.length > 0 || Boolean(button),
         enabled: Boolean(current) ||
@@ -475,6 +476,28 @@
       setCaptions(api, command);
     } else if (command.action === "quality") {
       setQuality(api, command.level);
+    } else if (command.action === "load") {
+      // Swap the moved preview player to another video in place.
+      if (!/^[\w-]{11}$/.test(command.videoId || "")) {
+        return { ok: false };
+      }
+      safeCall(() => api.unloadModule("captions"));
+      cachedCaptionTracks = [];
+      cachedCaptionVideoId = "";
+      let started = false;
+      if (typeof api.loadVideoById === "function") {
+        started = safeCall(() => {
+          api.loadVideoById({ videoId: command.videoId });
+          return true;
+        }, false);
+      }
+      if (!started && typeof api.loadVideoByPlayerVars === "function") {
+        started = safeCall(() => {
+          api.loadVideoByPlayerVars({ video_id: command.videoId });
+          return true;
+        }, false);
+      }
+      return { ok: started, status: playerStatus(api) };
     } else if (command.action === "storyboard") {
       const response = safeCall(() => api.getPlayerResponse(), null);
       return {

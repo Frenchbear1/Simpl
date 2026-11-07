@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Simpl",
-  "version": "1.12.1",
+  "version": "1.13.0",
   "minimum_chrome_version": "121",
   "description": "Hide page elements and block ads with bundled community filter lists.",
   "permissions": [

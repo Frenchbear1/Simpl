@@ -828,8 +828,7 @@ simpl-youtube-preview[data-state="closing"] .simpl-youtube-preview-backdrop {
   transform: translateX(-50%);
 }
 
-.simpl-youtube-preview-controls .simpl-youtube-preview-recs-toggle,
-.simpl-youtube-preview-controls .simpl-youtube-preview-desc-toggle {
+.simpl-youtube-preview-controls .simpl-youtube-preview-recs-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -843,22 +842,18 @@ simpl-youtube-preview[data-state="closing"] .simpl-youtube-preview-backdrop {
 }
 
 .simpl-youtube-preview-controls .simpl-youtube-preview-recs-toggle:hover,
-.simpl-youtube-preview-controls .simpl-youtube-preview-recs-toggle:focus-visible,
-.simpl-youtube-preview-controls .simpl-youtube-preview-desc-toggle:hover,
-.simpl-youtube-preview-controls .simpl-youtube-preview-desc-toggle:focus-visible {
+.simpl-youtube-preview-controls .simpl-youtube-preview-recs-toggle:focus-visible {
   background: rgba(255, 255, 255, 0.18) !important;
 }
 
-.simpl-youtube-preview-recs-toggle svg,
-.simpl-youtube-preview-desc-toggle svg {
+.simpl-youtube-preview-recs-toggle svg {
   width: 24px;
   height: 24px;
   fill: currentColor;
   transition: transform 260ms ease;
 }
 
-.simpl-youtube-preview-recs-toggle[aria-expanded="true"] svg,
-.simpl-youtube-preview-desc-toggle[aria-expanded="true"] svg {
+.simpl-youtube-preview-recs-toggle[aria-expanded="true"] svg {
   transform: rotate(180deg);
 }
 
@@ -973,8 +968,7 @@ simpl-youtube-preview[data-recs="open"] .simpl-youtube-preview-recs {
 }
 
 @media (max-width: 700px) {
-  .simpl-youtube-preview-recs-toggle span,
-  .simpl-youtube-preview-desc-toggle span {
+  .simpl-youtube-preview-recs-toggle span {
     display: none;
   }
 
@@ -1234,4 +1228,27 @@ simpl-youtube-preview[data-desc="open"] .simpl-youtube-preview-desc {
     left: 8px;
     width: auto;
   }
+}
+
+/* Description icon beside the time readout */
+.simpl-youtube-preview-controls .simpl-youtube-preview-desc-toggle {
+  margin-left: 2px;
+}
+
+.simpl-youtube-preview-desc-toggle svg {
+  width: 22px;
+  height: 22px;
+}
+
+.simpl-youtube-preview-controls .simpl-youtube-preview-desc-toggle[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.2) !important;
+  opacity: 1;
+}
+
+.simpl-youtube-preview-topbar .simpl-youtube-preview-back-video {
+  margin: 2px 0 0 -8px;
+}
+
+.simpl-youtube-preview-topbar .simpl-youtube-preview-back-video[hidden] {
+  display: none;
 }

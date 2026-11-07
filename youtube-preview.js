@@ -61,6 +61,8 @@
       chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.4 15.4 4.6-4.6 4.6 4.6L18 14l-6-6-6 6z"/></svg>',
       glass: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.4"/></svg>',
       solid: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor"/></svg>',
+      description: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm1 4v2h12V7H6zm0 4v2h12v-2H6zm0 4v2h8v-2H6z"/></svg>',
+      back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
       external: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>',
       pip: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7H5v10h5v2H3V5h18v7h-2V7zm-7 5h9v7h-9v-7zm2 2v3h5v-3h-5z"/></svg>',
       fullscreen: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zm-3-12v2h3v3h2V5h-5z"/></svg>',
@@ -290,6 +292,7 @@
             <button class="simpl-youtube-preview-fallback-open" type="button" hidden>Open on YouTube</button>
           </div>
           <div class="simpl-youtube-preview-topbar">
+            <button class="simpl-youtube-preview-back-video simpl-youtube-preview-icon-button" type="button" aria-label="Previous video" title="Back to previous video (b)" hidden>${icon("back")}</button>
             <div class="simpl-youtube-preview-heading">
               <span class="simpl-youtube-preview-title"></span>
               <span class="simpl-youtube-preview-channel"></span>
@@ -340,11 +343,9 @@
                   <input class="simpl-youtube-preview-volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume" disabled>
                 </div>
                 <span class="simpl-youtube-preview-time">0:00 / 0:00</span>
+                <button class="simpl-youtube-preview-desc-toggle simpl-youtube-preview-icon-button" type="button" aria-expanded="false" aria-label="Description" title="Description (d)">${icon("description")}</button>
               </div>
               <div class="simpl-youtube-preview-center">
-                <button class="simpl-youtube-preview-desc-toggle" type="button" aria-expanded="false" title="Description (d)">
-                  <span>Description</span>${icon("chevron")}
-                </button>
                 <button class="simpl-youtube-preview-recs-toggle" type="button" aria-expanded="false" title="Recommended videos (r)">
                   <span>Recommended</span>${icon("chevron")}
                 </button>
@@ -1361,6 +1362,7 @@
     clearTimeout(session.waitTimer);
     clearTimeout(session.controlsTimer);
     clearTimeout(session.toastTimer);
+    clearInterval(session.switchTimer);
     session.capObserver?.disconnect();
     cancelAnimationFrame(session.capFrame);
     if (document.pictureInPictureElement === session.video) {
@@ -1557,6 +1559,9 @@
       card.className = "simpl-youtube-preview-rec";
       card.href = `/watch?v=${encodeURIComponent(video.id)}`;
       card.dataset.videoId = video.id;
+      card.dataset.title = video.title;
+      card.dataset.channel = video.channel || "";
+      card.dataset.thumb = video.thumb || "";
       card.title = video.title;
       const thumb = document.createElement("span");
       thumb.className = "simpl-youtube-preview-rec-thumb";
@@ -1779,6 +1784,126 @@
     setControlsVisible(session, true);
   };
 
+  // ---- Switching videos without leaving the viewer ----------------------
+  // The moved preview player is a real YouTube player, so it can be told to
+  // load another video. If YouTube does not accept it in time, fall back to
+  // opening the video on YouTube.
+
+  const resetForNewVideo = (session, target) => {
+    session.url = target.url;
+    session.currentInfo = target;
+    session.watchPage = null;
+    session.recsLoaded = false;
+    session.recsLoading = false;
+    session.descLoaded = false;
+    session.descLoading = false;
+    session.storyboard = null;
+    session.storyboardPromise = null;
+    session.sheets = new Map();
+    session.qualityApplied = false;
+    session.qualityCurrent = "";
+    session.captionsTouched = false;
+    session.captionsPending = null;
+    session.userPaused = false;
+    session.resumeAttempts = 0;
+    renderCaptionText(session, "");
+    setCaptionButton(session, false);
+    session.ui.recsTrack.replaceChildren();
+    session.ui.descBody.replaceChildren();
+    session.ui.descTitle.textContent = target.title || "";
+    session.ui.descMeta.textContent = target.channel || "";
+    session.ui.heading.textContent = target.title || "";
+    session.ui.channelLabel.textContent = target.channel || "";
+    session.ui.timeline.value = "0";
+    session.ui.timeline.style.setProperty("--simpl-progress", "0%");
+    session.ui.scrub.hidden = true;
+    session.ui.backVideo.hidden = session.history.length === 0;
+    if (target.thumb) {
+      session.ui.poster.src = target.thumb;
+      session.ui.poster.hidden = false;
+    }
+  };
+
+  const switchVideo = (session, target, { back = false } = {}) => {
+    if (!session.video || session.switching || session.closing) {
+      closePreview(session, target.url);
+      return;
+    }
+    if (!/^[\w-]{11}$/.test(target.id || "")) {
+      closePreview(session, target.url);
+      return;
+    }
+    const previous = session.currentInfo;
+    const previousUrl = session.url;
+    const command = playerCommand("load", { videoId: target.id });
+    if (!command?.ok) {
+      closePreview(session, target.url);
+      return;
+    }
+    if (!back && previous) {
+      session.history.push({ ...previous, url: previousUrl });
+    }
+    session.switching = true;
+    toggleRecommended(session, false);
+    toggleDescription(session, false);
+    resetForNewVideo(session, target);
+    session.root.dataset.state = "loading";
+    session.ui.status.textContent = "Loading…";
+    showToast(session, target.title || "Loading…");
+
+    const startedAt = Date.now();
+    const finish = (ok) => {
+      clearInterval(session.switchTimer);
+      session.switching = false;
+      if (session.closing) {
+        return;
+      }
+      if (!ok) {
+        closePreview(session, target.url);
+        return;
+      }
+      session.root.dataset.state = "ready";
+      session.ui.status.textContent = "";
+      window.dispatchEvent(new Event("resize"));
+      refreshPlayerStatus(session);
+      scheduleStatusRefresh(session, [300, 900]);
+      setTimeout(() => {
+        if (activeSession === session && !session.closing && session.url === target.url) {
+          loadRecommended(session);
+          loadDescription(session);
+        }
+      }, 500);
+    };
+    clearInterval(session.switchTimer);
+    session.switchTimer = setInterval(() => {
+      const replaced = session.playerNode?.querySelector("video");
+      if (replaced && replaced !== session.video) {
+        // YouTube swapped the <video> element; the viewer's listeners are
+        // bound to the old one, so continue on the full page instead.
+        finish(false);
+        return;
+      }
+      const status = playerCommand("status")?.status;
+      if (
+        status?.videoId === target.id &&
+        session.video.readyState >= 2 &&
+        session.video.currentTime > 0.05
+      ) {
+        finish(true);
+      } else if (Date.now() - startedAt > 7000) {
+        finish(false);
+      }
+    }, 250);
+  };
+
+  const previousVideo = (session) => {
+    const entry = session.history.pop();
+    if (!entry) {
+      return;
+    }
+    switchVideo(session, entry, { back: true });
+  };
+
   // ---- Seek-bar preview (YouTube storyboard sprite sheets) --------------
 
   const parseStoryboard = (spec, duration) => {
@@ -1911,10 +2036,16 @@
   const openPreview = ({ anchor, card }) => {
     const originElement = getOriginElement(card, anchor);
     const originRect = originElement.getBoundingClientRect();
+    const info = {
+      ...getVideoInfo(card, anchor),
+      id: videoIdFromUrl(anchor.href),
+      url: anchor.href,
+      thumb: getPosterUrl(card)
+    };
     const root = createPlayer({
       url: anchor.href,
-      poster: getPosterUrl(card),
-      info: getVideoInfo(card, anchor)
+      poster: info.thumb,
+      info
     });
     const $ = (name) => root.querySelector(`.simpl-youtube-preview-${name}`);
     const ui = {
@@ -1949,6 +2080,10 @@
       qualityMenu: $("quality-menu"),
       qualityBadge: $("quality-badge"),
       descToggle: $("desc-toggle"),
+      backVideo: $("back-video"),
+      poster: $("poster"),
+      heading: $("title"),
+      channelLabel: $("channel"),
       desc: $("desc"),
       descTitle: $("desc-title"),
       descMeta: $("desc-meta"),
@@ -1992,6 +2127,9 @@
       qualityCurrent: "",
       recsOpen: false,
       descOpen: false,
+      history: [],
+      switching: false,
+      currentInfo: info,
       descLoaded: false,
       recsLoaded: false,
       qualityApplied: false,
@@ -2111,6 +2249,7 @@
     });
     applyDescriptionMode(session);
     on(ui.descToggle, "click", () => toggleDescription(session));
+    on(ui.backVideo, "click", () => previousVideo(session));
     on(ui.descGlass, "click", () => {
       savePrefs({ descSolid: false });
       applyDescriptionMode(session);
@@ -2153,7 +2292,13 @@
         return;
       }
       event.preventDefault();
-      closePreview(session, link.href);
+      switchVideo(session, {
+        id: link.dataset.videoId,
+        url: link.href,
+        title: link.dataset.title,
+        channel: link.dataset.channel,
+        thumb: link.dataset.thumb
+      });
     });
     on(ui.recsTrack.parentElement, "click", (event) => {
       if (event.target.closest("[data-retry]")) {
@@ -2330,6 +2475,8 @@
       toggleRecommended(session);
     } else if (key === "d") {
       toggleDescription(session);
+    } else if (key === "b" && session.history.length) {
+      previousVideo(session);
     } else if (key === "f") {
       setFullscreen(session);
     } else if (key === "i") {
