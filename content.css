@@ -119,20 +119,11 @@ simpl-youtube-preview * {
   pointer-events: none !important;
 }
 
-/* Lift captions clear of the control bar. The caption layer clips its own
-   content, so shrink its box from the bottom instead of translating it. */
+/* YouTube's own caption layer keeps running (the viewer reads its text) but is
+   never drawn; the viewer renders captions itself. */
 .simpl-youtube-preview-media .html5-video-player .ytp-caption-window-container {
-  z-index: 5 !important;
-  bottom: 0 !important;
-  transition: bottom 200ms ease;
-}
-
-simpl-youtube-preview[data-controls="visible"] .simpl-youtube-preview-media .html5-video-player .ytp-caption-window-container {
-  bottom: 84px !important;
-}
-
-simpl-youtube-preview[data-controls="visible"][data-recs="open"] .simpl-youtube-preview-media .html5-video-player .ytp-caption-window-container {
-  bottom: 270px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 /* The viewer, not YouTube, owns pointer input, so the moved player can never
@@ -962,4 +953,92 @@ simpl-youtube-preview[data-recs="open"] .simpl-youtube-preview-recs {
   .simpl-youtube-preview-recs-toggle {
     padding: 0 6px;
   }
+}
+
+/* Custom captions */
+simpl-youtube-preview {
+  --simpl-caps-size: 1;
+}
+
+simpl-youtube-preview[data-cap-size="s"] { --simpl-caps-size: 0.8; }
+simpl-youtube-preview[data-cap-size="l"] { --simpl-caps-size: 1.25; }
+
+.simpl-youtube-preview-caps {
+  position: absolute;
+  z-index: 6;
+  display: grid;
+  max-width: 46%;
+  pointer-events: none;
+  transition: bottom 240ms cubic-bezier(.2, .8, .2, 1), top 240ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.simpl-youtube-preview-caps[data-pos="bottom-left"],
+.simpl-youtube-preview-caps[data-pos="top-left"] {
+  left: 22px;
+  justify-items: start;
+}
+
+.simpl-youtube-preview-caps[data-pos="bottom-right"],
+.simpl-youtube-preview-caps[data-pos="top-right"] {
+  right: 22px;
+  justify-items: end;
+}
+
+.simpl-youtube-preview-caps[data-pos="bottom-center"] {
+  left: 50%;
+  max-width: 70%;
+  justify-items: center;
+  transform: translateX(-50%);
+}
+
+.simpl-youtube-preview-caps[data-pos^="bottom"] {
+  bottom: 28px;
+}
+
+.simpl-youtube-preview-caps[data-pos^="top"] {
+  top: 84px;
+}
+
+.simpl-youtube-preview-caps[data-pos="custom"] {
+  max-width: 60%;
+  transform: translate(-50%, -50%);
+  transition: none;
+}
+
+simpl-youtube-preview[data-controls="visible"] .simpl-youtube-preview-caps[data-pos^="bottom"] {
+  bottom: 104px;
+}
+
+simpl-youtube-preview[data-controls="visible"][data-recs="open"] .simpl-youtube-preview-caps[data-pos^="bottom"] {
+  bottom: 306px;
+}
+
+.simpl-youtube-preview-cap {
+  padding: 0.5em 0.95em 0.55em;
+  border-radius: 1em;
+  color: #fff;
+  background: rgba(14, 14, 18, 0.74);
+  backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  font: 500 calc(clamp(15px, 1.55vw, 24px) * var(--simpl-caps-size)) / 1.4 Roboto, "YouTube Sans", Arial, sans-serif;
+  text-align: left;
+  text-wrap: balance;
+  white-space: pre-line;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.simpl-youtube-preview-caps[data-pos="bottom-center"] .simpl-youtube-preview-cap {
+  text-align: center;
+}
+
+.simpl-youtube-preview-caps[data-dragging="true"] .simpl-youtube-preview-cap {
+  cursor: grabbing;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+}
+
+.simpl-youtube-preview-caps .simpl-youtube-preview-cap {
+  grid-area: 1 / 1;
 }

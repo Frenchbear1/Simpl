@@ -295,6 +295,7 @@
             <button class="simpl-youtube-preview-open simpl-youtube-preview-icon-button" type="button" aria-label="Continue on YouTube" title="Continue on YouTube at this time (w)">${icon("external")}</button>
             <button class="simpl-youtube-preview-close simpl-youtube-preview-icon-button" type="button" aria-label="Close preview" title="Close (Esc)">${icon("close")}</button>
           </div>
+          <div class="simpl-youtube-preview-caps" data-pos="bottom-left"></div>
           <div class="simpl-youtube-preview-toast" aria-live="polite"></div>
           <div class="simpl-youtube-preview-controls">
             <div class="simpl-youtube-preview-recs" aria-hidden="true">
@@ -341,6 +342,25 @@
                     <label class="simpl-youtube-preview-setting">
                       <span>Speed</span>
                       <select class="simpl-youtube-preview-speed" aria-label="Playback speed"></select>
+                    </label>
+                    <label class="simpl-youtube-preview-setting">
+                      <span>Caption position</span>
+                      <select class="simpl-youtube-preview-cap-pos" aria-label="Caption position">
+                        <option value="bottom-left">Bottom left</option>
+                        <option value="bottom-center">Bottom center</option>
+                        <option value="bottom-right">Bottom right</option>
+                        <option value="top-left">Top left</option>
+                        <option value="top-right">Top right</option>
+                        <option value="custom" hidden>Custom (dragged)</option>
+                      </select>
+                    </label>
+                    <label class="simpl-youtube-preview-setting">
+                      <span>Caption size</span>
+                      <select class="simpl-youtube-preview-cap-size" aria-label="Caption size">
+                        <option value="s">Small</option>
+                        <option value="m">Medium</option>
+                        <option value="l">Large</option>
+                      </select>
                     </label>
                     <label class="simpl-youtube-preview-setting simpl-youtube-preview-caption-row" hidden>
                       <span>Subtitles</span>
@@ -526,10 +546,15 @@
   // ---- Captions & quality (driven through YouTube's player API) --------
 
   const textTrackCaptionsEnabled = (session) => (
-    Array.from(session.video?.textTracks || []).some((track) => track.mode === "showing")
+    Array.from(session.video?.textTracks || []).some((track) => (
+      track.mode === "showing" || track.mode === "hidden"
+    ))
   );
 
   const setCaptionButton = (session, pressed) => {
+    if (!pressed && session.capText) {
+      renderCaptionText(session, "");
+    }
     session.ui.cc.dataset.active = String(pressed);
     session.ui.cc.setAttribute("aria-pressed", String(pressed));
   };
@@ -665,8 +690,9 @@
     if ((!result || !result.status?.api) && tracks.length > 0) {
       // No player API to drive: fall back to the media element's text tracks.
       tracks.forEach((item, index) => {
-        item.mode = wanted && index === 0 ? "showing" : "disabled";
+        item.mode = wanted && index === 0 ? "hidden" : "disabled";
       });
+      scheduleCaptionRead(session);
       setCaptionButton(session, textTrackCaptionsEnabled(session));
       return;
     }
@@ -716,6 +742,167 @@
     if (level) {
       setQuality(session, level.level, { save: false });
     }
+  };
+
+  // ---- Custom caption renderer ----------------------------------------
+  // YouTube keeps parsing and timing the captions; the viewer hides YouTube's
+  // own caption layer, reads its text, and draws it as a rounded, movable
+  // bubble that fades between lines.
+
+  const cueText = (cue) => String(cue?.text || "").replace(/<[^>]+>/g, "");
+
+  const readCaptionText = (session) => {
+    const lines = [];
+    const root = session.playerNode;
+    const container = root?.querySelector?.(".ytp-caption-window-container");
+    if (container) {
+      const visual = container.querySelectorAll(".caption-visual-line");
+      if (visual.length) {
+        visual.forEach((line) => lines.push(line.textContent.replace(/\s+/g, " ").trim()));
+      } else {
+        const groups = new Map();
+        container.querySelectorAll(".ytp-caption-segment").forEach((segment) => {
+          const key = segment.parentElement;
+          groups.set(key, `${groups.get(key) || ""} ${segment.textContent}`);
+        });
+        groups.forEach((text) => lines.push(text.replace(/\s+/g, " ").trim()));
+      }
+    }
+    if (lines.length === 0) {
+      for (const track of session.video?.textTracks || []) {
+        if (track.mode === "hidden" || track.mode === "showing") {
+          for (const cue of track.activeCues || []) {
+            lines.push(cueText(cue).trim());
+          }
+        }
+      }
+    }
+    return lines.filter(Boolean).join("\n");
+  };
+
+  const animateBubble = (bubble, keyframes, options) => {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return { finished: Promise.resolve() };
+    }
+    return bubble.animate(keyframes, { fill: "both", ...options });
+  };
+
+  const renderCaptionText = (session, text) => {
+    if (session.closing || text === session.capText) {
+      return;
+    }
+    const previous = session.capText;
+    session.capText = text;
+    const { caps } = session.ui;
+    const old = session.capBubble;
+
+    const dismiss = (bubble) => {
+      animateBubble(bubble, [
+        { opacity: 1, transform: "translateY(0) scale(1)" },
+        { opacity: 0, transform: "translateY(-6px) scale(0.98)" }
+      ], { duration: 160, easing: "ease-in" }).finished.then(() => bubble.remove(), () => bubble.remove());
+    };
+
+    if (!text) {
+      if (old) {
+        session.capBubble = null;
+        dismiss(old);
+      }
+      return;
+    }
+    // Rolling / growing captions update in place so they don't flicker.
+    if (old && previous && (text.includes(previous) || previous.includes(text))) {
+      old.textContent = text;
+      return;
+    }
+    const bubble = document.createElement("div");
+    bubble.className = "simpl-youtube-preview-cap";
+    bubble.textContent = text;
+    caps.append(bubble);
+    session.capBubble = bubble;
+    animateBubble(bubble, [
+      { opacity: 0, transform: "translateY(10px) scale(0.96)" },
+      { opacity: 1, transform: "translateY(0) scale(1)" }
+    ], { duration: 240, easing: "cubic-bezier(.2,.9,.25,1)" });
+    if (old) {
+      dismiss(old);
+    }
+  };
+
+  const scheduleCaptionRead = (session) => {
+    if (session.capFrame || session.closing) {
+      return;
+    }
+    session.capFrame = requestAnimationFrame(() => {
+      session.capFrame = 0;
+      renderCaptionText(session, readCaptionText(session));
+    });
+  };
+
+  const watchCaptions = (session) => {
+    const signal = session.controller.signal;
+    session.capObserver = new MutationObserver(() => scheduleCaptionRead(session));
+    session.capObserver.observe(session.playerNode, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+    for (const track of session.video.textTracks) {
+      track.addEventListener("cuechange", () => scheduleCaptionRead(session), { signal });
+    }
+    session.video.textTracks.addEventListener?.("addtrack", (event) => {
+      event.track.addEventListener("cuechange", () => scheduleCaptionRead(session), { signal });
+    }, { signal });
+  };
+
+  const applyCaptionLook = (session) => {
+    const { caps, capPos, capSize } = session.ui;
+    const point = prefs.captionPoint;
+    let pos = prefs.captionPos || "bottom-left";
+    if (pos === "custom" && !(point && Number.isFinite(point.x) && Number.isFinite(point.y))) {
+      pos = "bottom-left";
+    }
+    caps.dataset.pos = pos;
+    if (pos === "custom") {
+      caps.style.left = `${point.x * 100}%`;
+      caps.style.top = `${point.y * 100}%`;
+    } else {
+      caps.style.removeProperty("left");
+      caps.style.removeProperty("top");
+    }
+    session.root.dataset.capSize = prefs.captionSize || "m";
+    capPos.querySelector("option[value='custom']").hidden = pos !== "custom";
+    capPos.value = pos;
+    capSize.value = prefs.captionSize || "m";
+  };
+
+  const enableCaptionDrag = (session) => {
+    const { caps, media } = session.ui;
+    caps.addEventListener("pointerdown", (event) => {
+      const bubble = event.target.closest(".simpl-youtube-preview-cap");
+      if (!bubble || event.button > 0) {
+        return;
+      }
+      event.preventDefault();
+      caps.setPointerCapture(event.pointerId);
+      const rect = media.getBoundingClientRect();
+      const move = (moveEvent) => {
+        const x = Math.max(0.12, Math.min(0.88, (moveEvent.clientX - rect.left) / rect.width));
+        const y = Math.max(0.1, Math.min(0.9, (moveEvent.clientY - rect.top) / rect.height));
+        savePrefs({ captionPos: "custom", captionPoint: { x, y } });
+        applyCaptionLook(session);
+      };
+      const up = () => {
+        caps.removeEventListener("pointermove", move);
+        caps.removeEventListener("pointerup", up);
+        caps.removeEventListener("pointercancel", up);
+        delete caps.dataset.dragging;
+      };
+      caps.dataset.dragging = "true";
+      caps.addEventListener("pointermove", move);
+      caps.addEventListener("pointerup", up);
+      caps.addEventListener("pointercancel", up);
+    }, { signal: session.controller.signal });
   };
 
   // Captions start off: YouTube's hover preview may switch them on by itself,
@@ -913,6 +1100,7 @@
     }, { signal: session.controller.signal });
 
     populateSpeed(session);
+    watchCaptions(session);
     video.play().then(() => {
       if (!session.userSetMute) {
         video.muted = false;
@@ -1003,6 +1191,8 @@
     clearTimeout(session.waitTimer);
     clearTimeout(session.controlsTimer);
     clearTimeout(session.toastTimer);
+    session.capObserver?.disconnect();
+    cancelAnimationFrame(session.capFrame);
     if (document.pictureInPictureElement === session.video) {
       document.exitPictureInPicture?.().catch(() => {});
     }
@@ -1422,6 +1612,9 @@
       time: $("time"),
       timeline: $("timeline"),
       buffered: $("buffered"),
+      caps: $("caps"),
+      capPos: $("cap-pos"),
+      capSize: $("cap-size"),
       scrub: $("scrub"),
       scrubThumb: $("scrub-thumb"),
       scrubTime: $("scrub-time"),
@@ -1472,6 +1665,10 @@
       recsLoaded: false,
       qualityApplied: false,
       captionsTouched: false,
+      capText: "",
+      capBubble: null,
+      capFrame: 0,
+      capObserver: null,
       storyboard: null,
       storyboardPromise: null,
       sheets: new Map(),
@@ -1551,6 +1748,16 @@
         refreshPlayerStatus(session);
       }
       setControlsVisible(session, true);
+    });
+    applyCaptionLook(session);
+    enableCaptionDrag(session);
+    on(ui.capPos, "change", () => {
+      savePrefs({ captionPos: ui.capPos.value });
+      applyCaptionLook(session);
+    });
+    on(ui.capSize, "change", () => {
+      savePrefs({ captionSize: ui.capSize.value });
+      applyCaptionLook(session);
     });
     on(ui.speed, "change", () => setSpeed(session, Number(ui.speed.value)));
     on(ui.qualityButton, "click", () => {
@@ -1647,7 +1854,7 @@
       }
       if (
         !session.video ||
-        event.target.closest("button, input, select, label, a, .simpl-youtube-preview-settings-menu, .simpl-youtube-preview-quality-menu, .simpl-youtube-preview-topbar")
+        event.target.closest("button, input, select, label, a, .simpl-youtube-preview-caps, .simpl-youtube-preview-settings-menu, .simpl-youtube-preview-quality-menu, .simpl-youtube-preview-topbar")
       ) {
         return;
       }
