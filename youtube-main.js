@@ -341,6 +341,27 @@
       }));
   };
 
+  // True while the player is showing an ad instead of the requested video.
+  const adShowing = (api) => (
+    Boolean(api.classList?.contains("ad-showing") || api.classList?.contains("ad-interrupting")) ||
+    safeCall(() => api.getAdState?.(), -1) === 1
+  );
+
+  // Gets past an ad inside the viewer: press the skip button if it is there,
+  // otherwise jump the (muted) ad clip to its end.
+  const skipPlayerAd = (api) => {
+    for (const button of api.querySelectorAll(SKIP_SELECTOR)) {
+      activateButton(button);
+    }
+    const video = api.querySelector("video");
+    if (video && Number.isFinite(video.duration) && video.duration > 0) {
+      video.muted = true;
+      safeCall(() => {
+        video.currentTime = video.duration;
+      });
+    }
+  };
+
   const playerStatus = (api) => {
     const tracks = readCaptionTracks(api);
     const current = currentCaptionTrack(api);
@@ -348,6 +369,7 @@
     return {
       api: true,
       videoId: safeCall(() => api.getVideoData().video_id, "") || "",
+      ad: adShowing(api),
       captions: {
         available: tracks.length > 0 || Boolean(button),
         enabled: Boolean(current) ||
@@ -476,6 +498,10 @@
       setCaptions(api, command);
     } else if (command.action === "quality") {
       setQuality(api, command.level);
+    } else if (command.action === "skipAd") {
+      if (adShowing(api)) {
+        skipPlayerAd(api);
+      }
     } else if (command.action === "load") {
       // Swap the moved preview player to another video in place.
       if (!/^[\w-]{11}$/.test(command.videoId || "")) {

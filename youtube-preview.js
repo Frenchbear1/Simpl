@@ -280,7 +280,7 @@
   const createPlayer = ({ url, poster, info }) => {
     const root = document.createElement(ROOT_TAG);
     root.dataset.state = "loading";
-    root.dataset.controls = "visible";
+    root.dataset.controls = "hidden";
     root.innerHTML = `
       <div class="simpl-youtube-preview-backdrop"></div>
       <section class="simpl-youtube-preview-dialog" role="dialog" aria-modal="true" aria-label="YouTube preview player">
@@ -1134,7 +1134,7 @@
       session.root.dataset.state = "ready";
       ui.status.textContent = "";
     }
-    if (video.paused || video.ended) {
+    if ((video.paused || video.ended) && session.pointerSeen) {
       setControlsVisible(session, true);
     }
   };
@@ -1278,7 +1278,6 @@
       }
     }).catch(() => {});
     updateControls(session);
-    setControlsVisible(session, true);
     session.ui.close.focus({ preventScroll: true });
 
     // The player sizes its rendition to its element: let it notice the larger
@@ -1884,6 +1883,15 @@
         return;
       }
       const status = playerCommand("status")?.status;
+      if (status?.ad) {
+        // YouTube queued an ad before the video; get past it and keep waiting.
+        playerCommand("skipAd");
+        session.ui.status.textContent = "Skipping ad…";
+        if (Date.now() - startedAt > 20000) {
+          finish(false);
+        }
+        return;
+      }
       if (
         status?.videoId === target.id &&
         session.video.readyState >= 2 &&
@@ -2144,6 +2152,7 @@
       watchPage: null,
       scrubbing: false,
       overControls: false,
+      pointerSeen: false,
       userPaused: false,
       userSetMute: false,
       unmuteAttempts: 0,
@@ -2322,6 +2331,7 @@
     on(ui.pip, "click", () => togglePictureInPicture(session));
     on(ui.fullscreen, "click", () => setFullscreen(session));
     on(ui.media, "mousemove", (event) => {
+      session.pointerSeen = true;
       session.overControls = Boolean(
         event.target.closest?.(".simpl-youtube-preview-controls, .simpl-youtube-preview-topbar")
       );
