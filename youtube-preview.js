@@ -587,6 +587,7 @@
     const { qualityMenu, qualityButton } = session.ui;
     const levels = quality?.levels || [];
     session.qualityLevels = levels;
+    session.qualityCurrent = quality?.current || "";
     qualityButton.disabled = false;
     const active = session.qualityChoice || "auto";
     const signature = `${levels.map((item) => item.level).join(",")}|${active}`;
@@ -612,11 +613,25 @@
     }
   };
 
+  const QUALITY_TIERS = [144, 240, 360, 480, 720, 1080, 1440, 2160, 4320];
+
+  // Snap an odd frame size (e.g. 1920x818 letterboxed video) to the nearest
+  // standard tier, using the 16:9-equivalent height.
+  const tierFromVideo = (video) => {
+    const height = Math.max(video?.videoHeight || 0, Math.round((video?.videoWidth || 0) * 9 / 16));
+    if (!height) {
+      return 0;
+    }
+    return QUALITY_TIERS.reduce((best, tier) => (
+      Math.abs(tier - height) < Math.abs(best - height) ? tier : best
+    ), QUALITY_TIERS[0]);
+  };
+
   const renderResolution = (session) => {
-    const height = session.video?.videoHeight || 0;
-    session.ui.resolution.textContent = height ? `Playing at ${height}p` : "";
-    // Badge: the resolution actually playing (the choice can lag a moment).
-    session.ui.qualityBadge.textContent = !height ? "" : height >= 2160 ? "4K" : String(height);
+    // Prefer the level the player reports; otherwise snap the frame size.
+    const tier = QUALITY_HEIGHTS[session.qualityCurrent] || tierFromVideo(session.video);
+    session.ui.resolution.textContent = tier ? `Playing at ${tier}p` : "";
+    session.ui.qualityBadge.textContent = !tier ? "" : tier >= 2160 ? "4K" : String(tier);
   };
 
   const applyStatus = (session, status) => {
@@ -1678,6 +1693,7 @@
       captionAttempts: 0,
       qualityChoice: prefs.quality === "auto" ? "" : prefs.quality || DEFAULT_QUALITY,
       qualityLevels: [],
+      qualityCurrent: "",
       recsOpen: false,
       recsLoaded: false,
       qualityApplied: false,

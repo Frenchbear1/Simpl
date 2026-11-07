@@ -819,7 +819,7 @@ simpl-youtube-preview[data-state="closing"] .simpl-youtube-preview-backdrop {
   position: relative;
 }
 
-.simpl-youtube-preview-recs-toggle {
+.simpl-youtube-preview-controls .simpl-youtube-preview-recs-toggle {
   position: absolute;
   left: 50%;
   display: inline-flex;
@@ -835,8 +835,8 @@ simpl-youtube-preview[data-state="closing"] .simpl-youtube-preview-backdrop {
   transition: background 120ms ease;
 }
 
-.simpl-youtube-preview-recs-toggle:hover,
-.simpl-youtube-preview-recs-toggle:focus-visible {
+.simpl-youtube-preview-controls .simpl-youtube-preview-recs-toggle:hover,
+.simpl-youtube-preview-controls .simpl-youtube-preview-recs-toggle:focus-visible {
   background: rgba(255, 255, 255, 0.18) !important;
 }
 
