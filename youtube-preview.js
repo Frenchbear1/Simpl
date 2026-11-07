@@ -295,7 +295,7 @@
             <button class="simpl-youtube-preview-open simpl-youtube-preview-icon-button" type="button" aria-label="Continue on YouTube" title="Continue on YouTube at this time (w)">${icon("external")}</button>
             <button class="simpl-youtube-preview-close simpl-youtube-preview-icon-button" type="button" aria-label="Close preview" title="Close (Esc)">${icon("close")}</button>
           </div>
-          <div class="simpl-youtube-preview-caps" data-pos="bottom-left"></div>
+          <div class="simpl-youtube-preview-caps" data-pos="bottom-center"></div>
           <div class="simpl-youtube-preview-toast" aria-live="polite"></div>
           <div class="simpl-youtube-preview-controls">
             <div class="simpl-youtube-preview-recs" aria-hidden="true">
@@ -616,8 +616,7 @@
     const height = session.video?.videoHeight || 0;
     session.ui.resolution.textContent = height ? `Playing at ${height}p` : "";
     // Badge: the resolution actually playing (the choice can lag a moment).
-    session.ui.qualityBadge.textContent = !height ? "" : height >= 2160 ? "4K" : `${height}p`;
-    session.ui.qualityBadge.dataset.hd = String(height >= 720);
+    session.ui.qualityBadge.textContent = !height ? "" : height >= 2160 ? "4K" : String(height);
   };
 
   const applyStatus = (session, status) => {
@@ -787,6 +786,17 @@
     return bubble.animate(keyframes, { fill: "both", ...options });
   };
 
+  // One inline span so the rounded background hugs every wrapped row.
+  const setBubbleText = (bubble, text) => {
+    let hug = bubble.firstElementChild;
+    if (!hug) {
+      hug = document.createElement("span");
+      hug.className = "simpl-youtube-preview-cap-text";
+      bubble.replaceChildren(hug);
+    }
+    hug.textContent = text;
+  };
+
   const renderCaptionText = (session, text) => {
     if (session.closing || text === session.capText) {
       return;
@@ -812,12 +822,12 @@
     }
     // Rolling / growing captions update in place so they don't flicker.
     if (old && previous && (text.includes(previous) || previous.includes(text))) {
-      old.textContent = text;
+      setBubbleText(old, text);
       return;
     }
     const bubble = document.createElement("div");
     bubble.className = "simpl-youtube-preview-cap";
-    bubble.textContent = text;
+    setBubbleText(bubble, text);
     caps.append(bubble);
     session.capBubble = bubble;
     animateBubble(bubble, [
@@ -858,9 +868,9 @@
   const applyCaptionLook = (session) => {
     const { caps, capPos, capSize } = session.ui;
     const point = prefs.captionPoint;
-    let pos = prefs.captionPos || "bottom-left";
+    let pos = prefs.captionPos || "bottom-center";
     if (pos === "custom" && !(point && Number.isFinite(point.x) && Number.isFinite(point.y))) {
-      pos = "bottom-left";
+      pos = "bottom-center";
     }
     caps.dataset.pos = pos;
     if (pos === "custom") {
@@ -1101,6 +1111,13 @@
 
     populateSpeed(session);
     watchCaptions(session);
+    // Fetch recommendations (and their thumbnails) in the background so the
+    // row is ready the moment it is opened.
+    setTimeout(() => {
+      if (activeSession === session && !session.closing) {
+        loadRecommended(session);
+      }
+    }, 700);
     video.play().then(() => {
       if (!session.userSetMute) {
         video.muted = false;
@@ -1394,7 +1411,7 @@
         const image = document.createElement("img");
         image.src = video.thumb;
         image.alt = "";
-        image.loading = "lazy";
+        image.loading = "eager";
         image.draggable = false;
         thumb.append(image);
       }
