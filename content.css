@@ -273,10 +273,24 @@ simpl-youtube-preview[data-state="ready"] .simpl-youtube-preview-status {
   display: grid;
   gap: 4px;
   padding: 40px 12px 8px;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.42) 55%, rgba(0, 0, 0, 0) 100%);
+  isolation: isolate;
   opacity: 1;
   transform: translateY(0);
   transition: opacity 200ms ease, transform 200ms ease;
+}
+
+/* The shade lives in a fixed-height strip at the very bottom, so it matches
+   the control bar and never grows over the Recommended row. */
+.simpl-youtube-preview-controls::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 96px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.62) 62%, rgba(0, 0, 0, 0) 100%);
+  pointer-events: none;
 }
 
 simpl-youtube-preview[data-controls="hidden"] .simpl-youtube-preview-controls,
@@ -810,10 +824,10 @@ simpl-youtube-preview[data-state="closing"] .simpl-youtube-preview-backdrop {
   left: 50%;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 38px;
-  padding: 0 14px 0 20px;
-  border-radius: 19px !important;
+  gap: 8px;
+  height: 44px;
+  padding: 0 20px 0 28px;
+  border-radius: 22px !important;
   color: #fff;
   background: transparent !important;
   font: 500 15px/1 Roboto, Arial, sans-serif;
@@ -912,6 +926,11 @@ simpl-youtube-preview[data-recs="open"] .simpl-youtube-preview-recs {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
+}
+
+.simpl-youtube-preview-rec-title,
+.simpl-youtube-preview-rec-channel {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 8px rgba(0, 0, 0, 0.5);
 }
 
 .simpl-youtube-preview-rec-title {
