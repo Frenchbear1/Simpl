@@ -1226,6 +1226,15 @@
         signal: session.controller.signal
       });
     }
+    // Playback starting (a click or key press while the pointer stays still)
+    // restarts the idle timer, so the controls fade without any mouse move.
+    for (const type of ["play", "playing"]) {
+      video.addEventListener(type, () => {
+        if (session.root.dataset.controls === "visible") {
+          setControlsVisible(session, true);
+        }
+      }, { signal: session.controller.signal });
+    }
     video.addEventListener("resize", () => {
       updateControls(session);
       renderResolution(session);
