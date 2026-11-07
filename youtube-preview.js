@@ -25,7 +25,7 @@
   const ANIMATION_MS = 380;
   const CONTROLS_HIDE_MS = 1100;
   const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-  const DEFAULT_QUALITY = "hd1080";
+  const DEFAULT_QUALITY = "auto";
   const PREFS_KEY = "simpl_youtube_viewer_prefs";
   const PLAYER_COMMAND_EVENT = "simpl-youtube-player-command";
   const PLAYER_RESULT_EVENT = "simpl-youtube-player-result";
@@ -766,12 +766,14 @@
       return;
     }
     session.qualityApplied = true;
-    // Default to 1080p (or the best level below it) until the user chooses.
+    // Auto until the user chooses. Auto is sent explicitly so the preview
+    // player drops its small-preview cap and can step up in the big viewer.
     const wanted = prefs.quality || DEFAULT_QUALITY;
     if (wanted === "auto") {
+      setQuality(session, "auto", { save: false });
       return;
     }
-    const ceiling = QUALITY_HEIGHTS[wanted] || QUALITY_HEIGHTS[DEFAULT_QUALITY];
+    const ceiling = QUALITY_HEIGHTS[wanted] || 1080;
     const levels = status.quality.levels;
     const level = levels.find((item) => item.height <= ceiling) ||
       levels[levels.length - 1];
