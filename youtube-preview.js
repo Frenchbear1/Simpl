@@ -25,6 +25,7 @@
   const ANIMATION_MS = 380;
   const CONTROLS_HIDE_MS = 1100;
   const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  const DEFAULT_QUALITY = "hd1080";
   const PREFS_KEY = "simpl_youtube_viewer_prefs";
   const PLAYER_COMMAND_EVENT = "simpl-youtube-player-command";
   const PLAYER_RESULT_EVENT = "simpl-youtube-player-result";
@@ -56,6 +57,8 @@
       settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>',
       replay: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/><text x="12" y="15.2" text-anchor="middle" font-size="6.5" font-weight="700" font-family="Arial, sans-serif">10</text></svg>',
       forward: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2l5 4-5 4V7a5 5 0 1 0 5 5h2a7 7 0 1 1-7-7z"/><text x="12" y="15.2" text-anchor="middle" font-size="6.5" font-weight="700" font-family="Arial, sans-serif">10</text></svg>',
+      quality: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><text x="12" y="14.9" text-anchor="middle" font-size="7.5" font-weight="800" font-family="Arial, sans-serif" fill="currentColor" stroke="none">HD</text></svg>',
+      chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.4 15.4 4.6-4.6 4.6 4.6L18 14l-6-6-6 6z"/></svg>',
       external: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>',
       pip: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7H5v10h5v2H3V5h18v7h-2V7zm-7 5h9v7h-9v-7zm2 2v3h5v-3h-5z"/></svg>',
       fullscreen: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zm-3-12v2h3v3h2V5h-5z"/></svg>',
@@ -294,6 +297,9 @@
           </div>
           <div class="simpl-youtube-preview-toast" aria-live="polite"></div>
           <div class="simpl-youtube-preview-controls">
+            <div class="simpl-youtube-preview-recs" aria-hidden="true">
+              <div class="simpl-youtube-preview-recs-track" tabindex="-1"></div>
+            </div>
             <div class="simpl-youtube-preview-timeline-wrap">
               <div class="simpl-youtube-preview-buffered"></div>
               <input class="simpl-youtube-preview-timeline" type="range" min="0" max="1000" value="0" aria-label="Video position" disabled>
@@ -316,18 +322,22 @@
                 </div>
                 <span class="simpl-youtube-preview-time">0:00 / 0:00</span>
               </div>
+              <button class="simpl-youtube-preview-recs-toggle" type="button" aria-expanded="false" title="Recommended videos (r)">
+                <span>Recommended</span>${icon("chevron")}
+              </button>
               <div class="simpl-youtube-preview-control-group simpl-youtube-preview-right-controls">
                 <button class="simpl-youtube-preview-cc simpl-youtube-preview-text-button" type="button" aria-label="Subtitles/closed captions" aria-pressed="false" title="Subtitles/closed captions (c)" disabled>CC</button>
+                <div class="simpl-youtube-preview-quality-wrap">
+                  <span class="simpl-youtube-preview-quality-badge" aria-hidden="true"></span>
+                  <button class="simpl-youtube-preview-quality-button simpl-youtube-preview-icon-button" type="button" aria-label="Video quality" title="Video quality (q)" aria-expanded="false" disabled>${icon("quality")}</button>
+                  <div class="simpl-youtube-preview-quality-menu" role="menu" aria-label="Video quality" hidden></div>
+                </div>
                 <div class="simpl-youtube-preview-settings-wrap">
                   <button class="simpl-youtube-preview-settings-button simpl-youtube-preview-icon-button" type="button" aria-label="Settings" title="Settings" aria-expanded="false" disabled>${icon("settings")}</button>
                   <div class="simpl-youtube-preview-settings-menu" role="dialog" aria-label="Player settings" hidden>
                     <label class="simpl-youtube-preview-setting">
                       <span>Speed</span>
                       <select class="simpl-youtube-preview-speed" aria-label="Playback speed"></select>
-                    </label>
-                    <label class="simpl-youtube-preview-setting simpl-youtube-preview-quality-row" hidden>
-                      <span>Quality</span>
-                      <select class="simpl-youtube-preview-quality" aria-label="Video quality"></select>
                     </label>
                     <label class="simpl-youtube-preview-setting simpl-youtube-preview-caption-row" hidden>
                       <span>Subtitles</span>
@@ -377,6 +387,10 @@
     target.dispatchEvent(new MouseEvent("mouseenter", common));
   };
 
+  const menusOpen = (session) => (
+    !session.ui.settingsMenu.hidden || !session.ui.qualityMenu.hidden
+  );
+
   const setControlsVisible = (session, visible) => {
     if (!session || session.closing) {
       return;
@@ -387,7 +401,8 @@
       visible &&
       session.video &&
       !session.video.paused &&
-      session.ui.settingsMenu.hidden &&
+      !menusOpen(session) &&
+      !session.recsOpen &&
       !session.scrubbing &&
       !session.overControls
     ) {
@@ -541,37 +556,40 @@
   };
 
   const renderQuality = (session, quality) => {
-    const { qualityRow, qualitySelect } = session.ui;
+    const { qualityMenu, qualityButton } = session.ui;
     const levels = quality?.levels || [];
-    // Only offer a quality choice when YouTube exposes more than one level for
-    // this player; inline previews sometimes only carry a single rendition.
-    qualityRow.hidden = levels.length < 2;
-    const signature = levels.map((item) => item.level).join(",");
-    if (qualitySelect.dataset.signature !== signature) {
-      qualitySelect.dataset.signature = signature;
-      qualitySelect.replaceChildren();
-      const auto = document.createElement("option");
-      auto.value = "auto";
-      auto.textContent = "Auto";
-      qualitySelect.append(auto);
-      for (const item of levels) {
-        const option = document.createElement("option");
-        option.value = item.level;
-        option.textContent = item.label;
-        qualitySelect.append(option);
-      }
+    session.qualityLevels = levels;
+    qualityButton.disabled = false;
+    const active = session.qualityChoice || "auto";
+    const signature = `${levels.map((item) => item.level).join(",")}|${active}`;
+    if (qualityMenu.dataset.signature === signature) {
+      return;
     }
-    if (document.activeElement !== qualitySelect) {
-      qualitySelect.value = session.qualityChoice &&
-        levels.some((item) => item.level === session.qualityChoice)
-        ? session.qualityChoice
-        : "auto";
+    qualityMenu.dataset.signature = signature;
+    qualityMenu.replaceChildren();
+    const entries = [{ level: "auto", label: "Auto" }, ...levels];
+    for (const item of entries) {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.setAttribute("role", "menuitemradio");
+      option.setAttribute("aria-checked", String(item.level === active));
+      option.dataset.level = item.level;
+      option.textContent = item.label;
+      qualityMenu.append(option);
+    }
+    if (levels.length < 2) {
+      const note = document.createElement("p");
+      note.textContent = "YouTube only offers one quality for this preview.";
+      qualityMenu.append(note);
     }
   };
 
   const renderResolution = (session) => {
     const height = session.video?.videoHeight || 0;
     session.ui.resolution.textContent = height ? `Playing at ${height}p` : "";
+    // Badge: the resolution actually playing (the choice can lag a moment).
+    session.ui.qualityBadge.textContent = !height ? "" : height >= 2160 ? "4K" : `${height}p`;
+    session.ui.qualityBadge.dataset.hd = String(height >= 720);
   };
 
   const applyStatus = (session, status) => {
@@ -672,7 +690,7 @@
   const setQuality = (session, level, { save = true } = {}) => {
     session.qualityChoice = level === "auto" ? "" : level;
     if (save) {
-      savePrefs({ quality: session.qualityChoice });
+      savePrefs({ quality: level });
     }
     const result = playerCommand("quality", { level });
     applyStatus(session, result?.status);
@@ -682,12 +700,19 @@
   // Apply the viewer's remembered quality: highest available level at or
   // below the saved one.
   const applySavedQuality = (session, status) => {
-    if (session.qualityApplied || !prefs.quality || !status?.quality?.levels?.length) {
+    if (session.qualityApplied || !status?.quality?.levels?.length) {
       return;
     }
     session.qualityApplied = true;
-    const ceiling = QUALITY_HEIGHTS[prefs.quality] || 0;
-    const level = status.quality.levels.find((item) => item.height <= ceiling);
+    // Default to 1080p (or the best level below it) until the user chooses.
+    const wanted = prefs.quality || DEFAULT_QUALITY;
+    if (wanted === "auto") {
+      return;
+    }
+    const ceiling = QUALITY_HEIGHTS[wanted] || QUALITY_HEIGHTS[DEFAULT_QUALITY];
+    const levels = status.quality.levels;
+    const level = levels.find((item) => item.height <= ceiling) ||
+      levels[levels.length - 1];
     if (level) {
       setQuality(session, level.level, { save: false });
     }
@@ -1026,9 +1051,223 @@
     session.ui.close.focus({ preventScroll: true });
   };
 
-  const closeSettings = (session) => {
+  const closeMenus = (session) => {
     session.ui.settingsMenu.hidden = true;
     session.ui.settingsButton.setAttribute("aria-expanded", "false");
+    session.ui.qualityMenu.hidden = true;
+    session.ui.qualityButton.setAttribute("aria-expanded", "false");
+    setControlsVisible(session, true);
+  };
+
+  // ---- Recommended videos ------------------------------------------------
+  // YouTube only renders the "up next" column on a real watch page, so the
+  // viewer fetches that page (same origin, with the user's own cookies) and
+  // reads the related videos out of its embedded ytInitialData.
+
+  const extractInitialData = (html) => {
+    const marker = html.indexOf("ytInitialData");
+    const start = marker < 0 ? -1 : html.indexOf("{", marker);
+    if (start < 0) {
+      return null;
+    }
+    let depth = 0;
+    let inString = false;
+    for (let index = start; index < html.length; index += 1) {
+      const char = html[index];
+      if (inString) {
+        if (char === "\\") {
+          index += 1;
+        } else if (char === '"') {
+          inString = false;
+        }
+      } else if (char === '"') {
+        inString = true;
+      } else if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            return JSON.parse(html.slice(start, index + 1));
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const textOf = (value) => (
+    value?.simpleText ||
+    value?.content ||
+    (Array.isArray(value?.runs) ? value.runs.map((run) => run.text || "").join("") : "") ||
+    ""
+  );
+
+  const bestThumb = (sources) => {
+    const list = Array.isArray(sources) ? sources : [];
+    const sorted = [...list].sort((a, b) => (a.width || 0) - (b.width || 0));
+    return (sorted.find((item) => (item.width || 0) >= 300) || sorted[sorted.length - 1])?.url || "";
+  };
+
+  const videoFromRenderer = (node) => {
+    const renderer = node.compactVideoRenderer;
+    if (renderer?.videoId) {
+      return {
+        id: renderer.videoId,
+        title: textOf(renderer.title),
+        channel: textOf(renderer.longBylineText || renderer.shortBylineText),
+        duration: textOf(renderer.lengthText),
+        thumb: bestThumb(renderer.thumbnail?.thumbnails)
+      };
+    }
+    const lockup = node.lockupViewModel;
+    const type = String(lockup?.contentType || "");
+    if (lockup?.contentId && /VIDEO/.test(type) && !/PLAYLIST|MIX/.test(type)) {
+      const image = lockup.contentImage?.thumbnailViewModel;
+      let duration = "";
+      for (const overlay of image?.overlays || []) {
+        const badges = overlay.thumbnailBottomOverlayViewModel?.badges || [];
+        for (const badge of badges) {
+          duration = duration || badge.thumbnailBadgeViewModel?.text || "";
+        }
+      }
+      const rows = lockup.metadata?.lockupMetadataViewModel?.metadata
+        ?.contentMetadataViewModel?.metadataRows || [];
+      return {
+        id: lockup.contentId,
+        title: textOf(lockup.metadata?.lockupMetadataViewModel?.title),
+        channel: textOf(rows[0]?.metadataParts?.[0]?.text),
+        duration,
+        thumb: bestThumb(image?.image?.sources)
+      };
+    }
+    return null;
+  };
+
+  const collectRecommended = (root, currentId) => {
+    const found = [];
+    const seen = new Set([currentId]);
+    const walk = (node, depth) => {
+      if (!node || typeof node !== "object" || depth > 14 || found.length >= 30) {
+        return;
+      }
+      if (Array.isArray(node)) {
+        node.forEach((item) => walk(item, depth + 1));
+        return;
+      }
+      const video = videoFromRenderer(node);
+      if (video && video.title && !seen.has(video.id)) {
+        seen.add(video.id);
+        found.push(video);
+        return;
+      }
+      Object.values(node).forEach((item) => walk(item, depth + 1));
+    };
+    const secondary = root?.contents?.twoColumnWatchNextResults?.secondaryResults ||
+      root?.contents?.twoColumnWatchNextResults;
+    walk(secondary, 0);
+    return found;
+  };
+
+  const renderRecommended = (session, videos) => {
+    const { recsTrack } = session.ui;
+    recsTrack.replaceChildren();
+    for (const video of videos) {
+      const card = document.createElement("a");
+      card.className = "simpl-youtube-preview-rec";
+      card.href = `/watch?v=${encodeURIComponent(video.id)}`;
+      card.dataset.videoId = video.id;
+      card.title = video.title;
+      const thumb = document.createElement("span");
+      thumb.className = "simpl-youtube-preview-rec-thumb";
+      if (video.thumb) {
+        const image = document.createElement("img");
+        image.src = video.thumb;
+        image.alt = "";
+        image.loading = "lazy";
+        image.draggable = false;
+        thumb.append(image);
+      }
+      if (video.duration) {
+        const time = document.createElement("span");
+        time.className = "simpl-youtube-preview-rec-time";
+        time.textContent = video.duration;
+        thumb.append(time);
+      }
+      const title = document.createElement("span");
+      title.className = "simpl-youtube-preview-rec-title";
+      title.textContent = video.title;
+      const channel = document.createElement("span");
+      channel.className = "simpl-youtube-preview-rec-channel";
+      channel.textContent = video.channel;
+      card.append(thumb, title, channel);
+      recsTrack.append(card);
+    }
+  };
+
+  const showRecommendedMessage = (session, text, retry = false) => {
+    const { recsTrack } = session.ui;
+    recsTrack.replaceChildren();
+    const message = document.createElement("div");
+    message.className = "simpl-youtube-preview-recs-message";
+    message.textContent = text;
+    if (retry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.retry = "true";
+      button.textContent = "Try again";
+      message.append(button);
+    }
+    recsTrack.append(message);
+  };
+
+  const loadRecommended = async (session) => {
+    if (session.recsLoaded || session.recsLoading) {
+      return;
+    }
+    session.recsLoading = true;
+    showRecommendedMessage(session, "Loading recommendations…");
+    try {
+      const id = videoIdFromUrl(session.url);
+      const response = await fetch(`/watch?v=${encodeURIComponent(id)}`, {
+        credentials: "same-origin",
+        signal: session.controller.signal
+      });
+      if (!response.ok) {
+        throw new Error("bad response");
+      }
+      const data = extractInitialData(await response.text());
+      const videos = collectRecommended(data, id);
+      if (session.closing) {
+        return;
+      }
+      if (videos.length === 0) {
+        showRecommendedMessage(session, "No recommendations were found for this video.", true);
+      } else {
+        renderRecommended(session, videos);
+        session.recsLoaded = true;
+      }
+    } catch {
+      if (!session.closing) {
+        showRecommendedMessage(session, "Couldn't load recommendations.", true);
+      }
+    } finally {
+      session.recsLoading = false;
+    }
+  };
+
+  const toggleRecommended = (session, force) => {
+    const open = typeof force === "boolean" ? force : !session.recsOpen;
+    session.recsOpen = open;
+    session.root.dataset.recs = open ? "open" : "closed";
+    session.ui.recs.setAttribute("aria-hidden", String(!open));
+    session.ui.recsToggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      closeMenus(session);
+      loadRecommended(session);
+    }
     setControlsVisible(session, true);
   };
 
@@ -1064,8 +1303,12 @@
       settingsButton: $("settings-button"),
       settingsMenu: $("settings-menu"),
       speed: $("speed"),
-      qualityRow: $("quality-row"),
-      qualitySelect: $("quality"),
+      qualityButton: $("quality-button"),
+      qualityMenu: $("quality-menu"),
+      qualityBadge: $("quality-badge"),
+      recsToggle: $("recs-toggle"),
+      recs: $("recs"),
+      recsTrack: $("recs-track"),
       captionRow: $("caption-row"),
       captionTrack: $("caption-track"),
       resolution: $("resolution"),
@@ -1095,7 +1338,10 @@
       apiReady: false,
       captionsPending: null,
       captionAttempts: 0,
-      qualityChoice: prefs.quality || "",
+      qualityChoice: prefs.quality === "auto" ? "" : prefs.quality || DEFAULT_QUALITY,
+      qualityLevels: [],
+      recsOpen: false,
+      recsLoaded: false,
       qualityApplied: false,
       captionsApplied: false,
       scrubbing: false,
@@ -1169,15 +1415,62 @@
     on(ui.volume, "input", () => setVolume(session, Number(ui.volume.value)));
     on(ui.cc, "click", () => toggleCaptions(session));
     on(ui.settingsButton, "click", () => {
-      ui.settingsMenu.hidden = !ui.settingsMenu.hidden;
-      ui.settingsButton.setAttribute("aria-expanded", String(!ui.settingsMenu.hidden));
-      if (!ui.settingsMenu.hidden) {
+      const open = ui.settingsMenu.hidden;
+      closeMenus(session);
+      ui.settingsMenu.hidden = !open;
+      ui.settingsButton.setAttribute("aria-expanded", String(open));
+      if (open) {
         refreshPlayerStatus(session);
       }
       setControlsVisible(session, true);
     });
     on(ui.speed, "change", () => setSpeed(session, Number(ui.speed.value)));
-    on(ui.qualitySelect, "change", () => setQuality(session, ui.qualitySelect.value));
+    on(ui.qualityButton, "click", () => {
+      const open = ui.qualityMenu.hidden;
+      closeMenus(session);
+      ui.qualityMenu.hidden = !open;
+      ui.qualityButton.setAttribute("aria-expanded", String(open));
+      if (open) {
+        refreshPlayerStatus(session);
+      }
+      setControlsVisible(session, true);
+    });
+    on(ui.qualityMenu, "click", (event) => {
+      const option = event.target.closest("button[data-level]");
+      if (!option) {
+        return;
+      }
+      setQuality(session, option.dataset.level);
+      closeMenus(session);
+    });
+    on(ui.recsToggle, "click", () => toggleRecommended(session));
+    on(ui.recsTrack, "wheel", (event) => {
+      if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        event.preventDefault();
+        ui.recsTrack.scrollLeft += event.deltaY;
+      }
+    }, { passive: false });
+    on(ui.recsTrack, "click", (event) => {
+      const link = event.target.closest("a[data-video-id]");
+      if (
+        !link ||
+        event.button > 0 ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      event.preventDefault();
+      closePreview(session, link.href);
+    });
+    on(ui.recsTrack.parentElement, "click", (event) => {
+      if (event.target.closest("[data-retry]")) {
+        session.recsLoaded = false;
+        loadRecommended(session);
+      }
+    });
     on(ui.captionTrack, "change", () => {
       const key = ui.captionTrack.value;
       if (!key) {
@@ -1201,20 +1494,32 @@
     });
     on(ui.media, "mouseleave", () => {
       session.overControls = false;
-      if (session.video && !session.video.paused && ui.settingsMenu.hidden) {
+      if (session.video && !session.video.paused && !menusOpen(session) && !session.recsOpen) {
         setControlsVisible(session, false);
       }
     });
     on(ui.media, "click", (event) => {
-      if (!ui.settingsMenu.hidden && !event.target.closest(".simpl-youtube-preview-settings-wrap")) {
+      if (
+        menusOpen(session) &&
+        !event.target.closest(".simpl-youtube-preview-settings-wrap, .simpl-youtube-preview-quality-wrap")
+      ) {
         event.preventDefault();
         event.stopPropagation();
-        closeSettings(session);
+        closeMenus(session);
+        return;
+      }
+      if (
+        session.recsOpen &&
+        !event.target.closest(".simpl-youtube-preview-controls, .simpl-youtube-preview-topbar")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleRecommended(session, false);
         return;
       }
       if (
         !session.video ||
-        event.target.closest("button, input, select, label, .simpl-youtube-preview-settings-menu, .simpl-youtube-preview-topbar")
+        event.target.closest("button, input, select, label, a, .simpl-youtube-preview-settings-menu, .simpl-youtube-preview-quality-menu, .simpl-youtube-preview-topbar")
       ) {
         return;
       }
@@ -1279,8 +1584,10 @@
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      if (!session.ui.settingsMenu.hidden) {
-        closeSettings(session);
+      if (menusOpen(session)) {
+        closeMenus(session);
+      } else if (session.recsOpen) {
+        toggleRecommended(session, false);
       } else if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       } else {
@@ -1324,6 +1631,10 @@
       session.video.muted = !session.video.muted;
     } else if (key === "c") {
       toggleCaptions(session);
+    } else if (key === "q") {
+      session.ui.qualityButton.click();
+    } else if (key === "r") {
+      toggleRecommended(session);
     } else if (key === "f") {
       setFullscreen(session);
     } else if (key === "i") {
