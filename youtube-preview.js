@@ -290,6 +290,7 @@
             <span class="simpl-youtube-preview-spinner" aria-hidden="true"></span>
             <span class="simpl-youtube-preview-status-text">Loading preview…</span>
             <button class="simpl-youtube-preview-fallback-open" type="button" hidden>Open on YouTube</button>
+            <button class="simpl-youtube-preview-fallback-open simpl-youtube-preview-play-other" type="button" hidden>Play another way</button>
           </div>
           <div class="simpl-youtube-preview-topbar">
             <button class="simpl-youtube-preview-back-video simpl-youtube-preview-icon-button" type="button" aria-label="Previous video" title="Back to previous video (b)" hidden>${icon("back")}</button>
@@ -768,7 +769,7 @@
     session.qualityApplied = true;
     // Auto until the user chooses. Auto is sent explicitly so the preview
     // player drops its small-preview cap and can step up in the big viewer.
-    const wanted = prefs.quality || DEFAULT_QUALITY;
+    const wanted = session.qualityChoice || DEFAULT_QUALITY;
     if (wanted === "auto") {
       setQuality(session, "auto", { save: false });
       return;
@@ -780,6 +781,82 @@
     if (level) {
       setQuality(session, level.level, { save: false });
     }
+  };
+
+  // ---- Live "Auto" quality -------------------------------------------------
+  // The preview player sizes its rendition for a small hover tile and often
+  // never re-evaluates once it is enlarged. While Auto is chosen the viewer
+  // steps the quality up one level at a time when the buffer is healthy and
+  // the video fits the viewer, and steps back down (remembering the limit for
+  // a while) if playback stalls.
+
+  const bufferedAhead = (video) => {
+    for (let i = 0; i < video.buffered.length; i += 1) {
+      if (video.buffered.start(i) <= video.currentTime + 0.25 && video.buffered.end(i) >= video.currentTime) {
+        return video.buffered.end(i) - video.currentTime;
+      }
+    }
+    return 0;
+  };
+
+  const autoQuality = (session, status) => {
+    const { video } = session;
+    const levels = status?.quality?.levels || [];
+    if (
+      session.qualityChoice ||
+      !video ||
+      video.paused ||
+      status?.ad ||
+      levels.length < 2 ||
+      session.switching
+    ) {
+      return;
+    }
+    const now = Date.now();
+    const abr = session.abr || (session.abr = { stepAt: 0, failedHeight: 0, failedAt: 0 });
+    const sorted = [...levels].sort((a, b) => a.height - b.height);
+    const playing = QUALITY_HEIGHTS[status.quality.current] || tierFromVideo(video);
+    const rect = session.ui.media.getBoundingClientRect();
+    const want = rect.height * (window.devicePixelRatio || 1) * 0.85;
+    const fit = sorted.find((item) => item.height >= want) || sorted[sorted.length - 1];
+    let index = sorted.findIndex((item) => item.height >= playing);
+    if (index < 0) {
+      index = sorted.length - 1;
+    }
+    const stalledSinceStep = (session.lastStallAt || 0) > abr.stepAt;
+    if (stalledSinceStep && now - session.lastStallAt < 6000 && index > 0 && now - abr.stepAt > 2500) {
+      abr.failedHeight = sorted[index].height;
+      abr.failedAt = now;
+      abr.stepAt = now;
+      playerCommand("quality", { level: sorted[index - 1].level });
+      return;
+    }
+    const next = sorted[index + 1];
+    if (
+      !next ||
+      sorted[index].height >= fit.height ||
+      now - abr.stepAt < 5000 ||
+      now - (session.lastStallAt || 0) < 8000 ||
+      bufferedAhead(video) < 8 ||
+      (abr.failedHeight && next.height >= abr.failedHeight && now - abr.failedAt < 60000)
+    ) {
+      return;
+    }
+    abr.stepAt = now;
+    playerCommand("quality", { level: next.level });
+  };
+
+  // YouTube's preview player starts muted; push the viewer's audio settings
+  // through the player API as well as the media element.
+  const applyAudio = (session) => {
+    const { video } = session;
+    if (!video || session.userSetMute) {
+      return;
+    }
+    const volume = Number.isFinite(prefs.volume) && prefs.volume > 0 ? Math.min(1, prefs.volume) : 1;
+    const carried = session.carry?.volume;
+    playerCommand("audio", { muted: false, volume: Number.isFinite(carried) && carried > 0 ? carried : volume });
+    video.muted = false;
   };
 
   // ---- Custom caption renderer ----------------------------------------
@@ -1073,6 +1150,14 @@
   // Captions start off: YouTube's hover preview may switch them on by itself,
   // so turn them off until the user asks for them in this viewer.
   const applyCaptionsDefault = (session, status) => {
+    if (session.carryCaptions && !session.captionsTouched) {
+      // The previous video had subtitles on; turn them on here once a track exists.
+      if (status?.captions?.available && status.captions.tracks?.length) {
+        session.carryCaptions = false;
+        setCaptions(session, true, null, true);
+      }
+      return;
+    }
     if (session.captionsTouched || status?.captions?.enabled !== true) {
       return;
     }
@@ -1132,7 +1217,7 @@
     if (SPEEDS.includes(video.playbackRate)) {
       ui.speed.value = String(video.playbackRate);
     }
-    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    if (!session.switching && video.readyState >= HTMLMediaElement.HAVE_METADATA) {
       session.root.dataset.state = "ready";
       ui.status.textContent = "";
     }
@@ -1182,7 +1267,16 @@
       video.volume = 1;
     }
     video.muted = false;
-    if (Number.isFinite(prefs.speed) && SPEEDS.includes(prefs.speed)) {
+    if (session.carry) {
+      const carry = session.carry;
+      if (Number.isFinite(carry.volume) && carry.volume > 0) {
+        video.volume = Math.min(1, carry.volume);
+      }
+      video.muted = carry.userSetMute ? carry.muted : false;
+    }
+    if (session.carry && SPEEDS.includes(session.carry.speed)) {
+      video.playbackRate = session.carry.speed;
+    } else if (Number.isFinite(prefs.speed) && SPEEDS.includes(prefs.speed)) {
       video.playbackRate = prefs.speed;
     }
     if (
@@ -1298,14 +1392,26 @@
     const status = refreshPlayerStatus(session);
     applyCaptionsDefault(session, status);
     applySavedQuality(session, status);
+    applyAudio(session);
+    video.addEventListener("waiting", () => {
+      if (!video.seeking) {
+        session.lastStallAt = Date.now();
+      }
+    }, { signal: session.controller.signal });
     // Captions/quality data often arrives a moment after playback starts.
+    let ticks = 0;
     session.statusTimer = setInterval(() => {
       if (activeSession !== session || session.closing) {
         return;
       }
+      ticks += 1;
       const latest = refreshPlayerStatus(session);
       applyCaptionsDefault(session, latest);
       applySavedQuality(session, latest);
+      if (ticks <= 6 && video.muted) {
+        applyAudio(session);
+      }
+      autoQuality(session, latest);
     }, 2000);
     scheduleStatusRefresh(session, [300, 900]);
   };
@@ -1837,6 +1943,7 @@
   // opening the video on YouTube.
 
   const resetForNewVideo = (session, target) => {
+    session.carryCaptions = session.ui.cc.getAttribute("aria-pressed") === "true";
     session.url = target.url;
     session.currentInfo = target;
     session.watchPage = null;
@@ -1894,12 +2001,16 @@
     session.root.dataset.pending = "true";
     session.root.dataset.state = "loading";
     session.ui.status.textContent = "Loading…";
+    const { playOther } = session.ui;
     const revert = () => {
       delete session.root.dataset.pending;
       session.switching = false;
+      playOther.hidden = true;
+      playOther.onclick = null;
     };
     return new Promise((resolve) => {
       const startedAt = Date.now();
+      let offered = false;
       const timer = setInterval(() => {
         if (session.closing) {
           clearInterval(timer);
@@ -1913,6 +2024,14 @@
             ? session.history
             : [...session.history, ...(previous ? [{ ...previous, url: previousUrl }] : [])];
           const returnFocus = session.returnFocus;
+          const carry = {
+            volume: session.video.volume,
+            muted: session.video.muted,
+            userSetMute: session.userSetMute,
+            speed: session.video.playbackRate,
+            qualityChoice: session.qualityChoice,
+            captions: session.ui.cc.getAttribute("aria-pressed") === "true"
+          };
           closePreview(session, "", { instant: true });
           openPreview({
             anchor,
@@ -1920,14 +2039,21 @@
             instant: true,
             history,
             returnFocus,
+            carry,
             info: { ...target, url: anchor.href }
           });
           resolve(true);
-        } else if (Date.now() - startedAt > 3500) {
-          clearInterval(timer);
-          revert();
-          resolve(false);
         } else {
+          if (!offered && Date.now() - startedAt > 3500) {
+            // Never switch on its own; let the user choose the old method.
+            offered = true;
+            playOther.hidden = false;
+            playOther.onclick = () => {
+              clearInterval(timer);
+              revert();
+              resolve(false);
+            };
+          }
           dispatchPreviewHover(card);
         }
       }, 100);
@@ -2161,7 +2287,7 @@
     setControlsVisible(session, true);
   };
 
-  const openPreview = ({ anchor, card, instant = false, history = [], returnFocus = null, info: given = null }) => {
+  const openPreview = ({ anchor, card, instant = false, history = [], returnFocus = null, info: given = null, carry = null }) => {
     const ghost = Boolean(card.closest?.("#simpl-youtube-ghosts"));
     const originElement = ghost ? null : getOriginElement(card, anchor);
     const originRect = originElement ? originElement.getBoundingClientRect() : null;
@@ -2183,6 +2309,7 @@
       topbar: $("topbar"),
       status: $("status-text"),
       fallbackOpen: $("fallback-open"),
+      playOther: $("play-other"),
       open: $("open"),
       close: $("close"),
       toast: $("toast"),
@@ -2252,7 +2379,13 @@
       apiReady: false,
       captionsPending: null,
       captionAttempts: 0,
-      qualityChoice: prefs.quality === "auto" ? "" : prefs.quality || DEFAULT_QUALITY,
+      qualityChoice: carry
+        ? carry.qualityChoice
+        : prefs.quality === "auto" ? "" : prefs.quality || "",
+      carry,
+      carryCaptions: Boolean(carry?.captions),
+      userSetMute: Boolean(carry?.userSetMute),
+      lastStallAt: 0,
       qualityLevels: [],
       qualityCurrent: "",
       recsOpen: false,
@@ -2276,7 +2409,6 @@
       overControls: false,
       pointerSeen: false,
       userPaused: false,
-      userSetMute: false,
       unmuteAttempts: 0,
       resumeAttempts: 0,
       closing: false

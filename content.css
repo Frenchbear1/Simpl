@@ -1259,3 +1259,65 @@ simpl-youtube-preview[data-pending="true"] .simpl-youtube-preview-poster {
   filter: blur(14px) brightness(0.75);
   transform: scale(1.06);
 }
+
+/* Ads inside the viewer: the moved player ignores the pointer (the viewer owns
+   input), so YouTube's own Skip button must opt back in and sit above the
+   viewer's controls to be clickable. */
+.simpl-youtube-preview-media > .html5-video-player.ad-showing,
+.simpl-youtube-preview-media > .html5-video-player.ad-interrupting,
+.simpl-youtube-preview-media > ytd-player:has(.html5-video-player.ad-showing),
+.simpl-youtube-preview-media > ytd-player:has(.html5-video-player.ad-interrupting) {
+  z-index: 20 !important;
+}
+
+.simpl-youtube-preview-media .ytp-ad-skip-button-container,
+.simpl-youtube-preview-media .ytp-ad-skip-button-slot,
+.simpl-youtube-preview-media .ytp-skip-ad,
+.simpl-youtube-preview-media .ytp-skip-ad-button,
+.simpl-youtube-preview-media .ytp-ad-skip-button,
+.simpl-youtube-preview-media .ytp-ad-skip-button-modern,
+.simpl-youtube-preview-media .ytp-ad-skip-button-container * {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+/* Keep the Skip label and its arrow on one centred line. */
+.simpl-youtube-preview-media .ytp-skip-ad-button,
+.simpl-youtube-preview-media .ytp-ad-skip-button-modern {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  box-sizing: border-box !important;
+  line-height: 1 !important;
+}
+
+.simpl-youtube-preview-media .ytp-skip-ad-button__text,
+.simpl-youtube-preview-media .ytp-ad-skip-button-text {
+  display: inline-block !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+}
+
+.simpl-youtube-preview-media .ytp-skip-ad-button__icon,
+.simpl-youtube-preview-media .ytp-ad-skip-button-icon,
+.simpl-youtube-preview-media .ytp-ad-skip-button-icon-modern {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+
+.simpl-youtube-preview-media .ytp-skip-ad-button__icon svg,
+.simpl-youtube-preview-media .ytp-ad-skip-button-icon svg,
+.simpl-youtube-preview-media .ytp-ad-skip-button-icon-modern svg {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  fill: currentColor !important;
+  transform: none !important;
+}

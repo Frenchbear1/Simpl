@@ -537,6 +537,15 @@
       setCaptions(api, command);
     } else if (command.action === "quality") {
       setQuality(api, command.level);
+    } else if (command.action === "audio") {
+      if (command.muted) {
+        safeCall(() => api.mute?.());
+      } else {
+        safeCall(() => api.unMute?.());
+        if (Number.isFinite(command.volume)) {
+          safeCall(() => api.setVolume?.(Math.round(Math.max(0, Math.min(1, command.volume)) * 100)));
+        }
+      }
     } else if (command.action === "skipAd") {
       if (adShowing(api)) {
         skipPlayerAd(api);
