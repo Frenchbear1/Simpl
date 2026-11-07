@@ -25,7 +25,7 @@
   const ANIMATION_MS = 380;
   const CONTROLS_HIDE_MS = 1100;
   const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-  const DEFAULT_QUALITY = "auto";
+  const DEFAULT_QUALITY = "hd1080";
   const PREFS_KEY = "simpl_youtube_viewer_prefs";
   const PLAYER_COMMAND_EVENT = "simpl-youtube-player-command";
   const PLAYER_RESULT_EVENT = "simpl-youtube-player-result";
@@ -767,14 +767,12 @@
       return;
     }
     session.qualityApplied = true;
-    // Auto until the user chooses. Auto is sent explicitly so the preview
-    // player drops its small-preview cap and can step up in the big viewer.
-    const wanted = session.qualityChoice || DEFAULT_QUALITY;
+    // 1080p (or the best level below it) until the user chooses; applied once.
+    const wanted = session.qualityChoice || "auto";
     if (wanted === "auto") {
-      setQuality(session, "auto", { save: false });
       return;
     }
-    const ceiling = QUALITY_HEIGHTS[wanted] || 1080;
+    const ceiling = QUALITY_HEIGHTS[wanted] || QUALITY_HEIGHTS[DEFAULT_QUALITY];
     const levels = status.quality.levels;
     const level = levels.find((item) => item.height <= ceiling) ||
       levels[levels.length - 1];
@@ -783,79 +781,13 @@
     }
   };
 
-  // ---- Live "Auto" quality -------------------------------------------------
-  // The preview player sizes its rendition for a small hover tile and often
-  // never re-evaluates once it is enlarged. While Auto is chosen the viewer
-  // steps the quality up one level at a time when the buffer is healthy and
-  // the video fits the viewer, and steps back down (remembering the limit for
-  // a while) if playback stalls.
-
-  const bufferedAhead = (video) => {
-    for (let i = 0; i < video.buffered.length; i += 1) {
-      if (video.buffered.start(i) <= video.currentTime + 0.25 && video.buffered.end(i) >= video.currentTime) {
-        return video.buffered.end(i) - video.currentTime;
-      }
-    }
-    return 0;
-  };
-
-  const autoQuality = (session, status) => {
-    const { video } = session;
-    const levels = status?.quality?.levels || [];
-    if (
-      session.qualityChoice ||
-      !video ||
-      video.paused ||
-      status?.ad ||
-      levels.length < 2 ||
-      session.switching
-    ) {
-      return;
-    }
-    const now = Date.now();
-    const abr = session.abr || (session.abr = { stepAt: 0, failedHeight: 0, failedAt: 0 });
-    const sorted = [...levels].sort((a, b) => a.height - b.height);
-    const playing = QUALITY_HEIGHTS[status.quality.current] || tierFromVideo(video);
-    const rect = session.ui.media.getBoundingClientRect();
-    const want = rect.height * (window.devicePixelRatio || 1) * 0.85;
-    const fit = sorted.find((item) => item.height >= want) || sorted[sorted.length - 1];
-    let index = sorted.findIndex((item) => item.height >= playing);
-    if (index < 0) {
-      index = sorted.length - 1;
-    }
-    const stalledSinceStep = (session.lastStallAt || 0) > abr.stepAt;
-    if (stalledSinceStep && now - session.lastStallAt < 6000 && index > 0 && now - abr.stepAt > 2500) {
-      abr.failedHeight = sorted[index].height;
-      abr.failedAt = now;
-      abr.stepAt = now;
-      playerCommand("quality", { level: sorted[index - 1].level });
-      return;
-    }
-    const next = sorted[index + 1];
-    if (
-      !next ||
-      sorted[index].height >= fit.height ||
-      now - abr.stepAt < 5000 ||
-      now - (session.lastStallAt || 0) < 8000 ||
-      bufferedAhead(video) < 8 ||
-      (abr.failedHeight && next.height >= abr.failedHeight && now - abr.failedAt < 60000)
-    ) {
-      return;
-    }
-    abr.stepAt = now;
-    playerCommand("quality", { level: next.level });
-  };
-
-  // YouTube's preview player starts muted; push the viewer's audio settings
-  // through the player API as well as the media element.
+  // The preview player can start muted. Unmute through the media element
+  // only; this never seeks or reloads, and runs a few times at most.
   const applyAudio = (session) => {
     const { video } = session;
-    if (!video || session.userSetMute) {
+    if (!video || session.userSetMute || !video.muted) {
       return;
     }
-    const volume = Number.isFinite(prefs.volume) && prefs.volume > 0 ? Math.min(1, prefs.volume) : 1;
-    const carried = session.carry?.volume;
-    playerCommand("audio", { muted: false, volume: Number.isFinite(carried) && carried > 0 ? carried : volume });
     video.muted = false;
   };
 
@@ -1393,11 +1325,6 @@
     applyCaptionsDefault(session, status);
     applySavedQuality(session, status);
     applyAudio(session);
-    video.addEventListener("waiting", () => {
-      if (!video.seeking) {
-        session.lastStallAt = Date.now();
-      }
-    }, { signal: session.controller.signal });
     // Captions/quality data often arrives a moment after playback starts.
     let ticks = 0;
     session.statusTimer = setInterval(() => {
@@ -1408,10 +1335,9 @@
       const latest = refreshPlayerStatus(session);
       applyCaptionsDefault(session, latest);
       applySavedQuality(session, latest);
-      if (ticks <= 6 && video.muted) {
+      if (ticks <= 3) {
         applyAudio(session);
       }
-      autoQuality(session, latest);
     }, 2000);
     scheduleStatusRefresh(session, [300, 900]);
   };
@@ -2381,11 +2307,10 @@
       captionAttempts: 0,
       qualityChoice: carry
         ? carry.qualityChoice
-        : prefs.quality === "auto" ? "" : prefs.quality || "",
+        : prefs.quality === "auto" ? "" : prefs.quality || DEFAULT_QUALITY,
       carry,
       carryCaptions: Boolean(carry?.captions),
       userSetMute: Boolean(carry?.userSetMute),
-      lastStallAt: 0,
       qualityLevels: [],
       qualityCurrent: "",
       recsOpen: false,
