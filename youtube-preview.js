@@ -1347,7 +1347,7 @@
     }
   };
 
-  const closePreview = async (session = activeSession, navigateTo = "") => {
+  const closePreview = async (session = activeSession, navigateTo = "", { instant = false } = {}) => {
     if (!session || session.closing) {
       if (navigateTo) {
         location.assign(navigateTo);
@@ -1369,7 +1369,7 @@
     if (document.pictureInPictureElement === session.video) {
       document.exitPictureInPicture?.().catch(() => {});
     }
-    if (document.fullscreenElement) {
+    if (document.fullscreenElement && !instant) {
       await document.exitFullscreen().catch(() => {});
     }
 
@@ -1380,12 +1380,20 @@
         destinationRect = current;
       }
     }
-    await animateDialogOut(session.ui.dialog, destinationRect);
+    if (!instant) {
+      await animateDialogOut(session.ui.dialog, destinationRect);
+    }
     restorePlayer(session);
     session.root.remove();
     document.documentElement.classList.remove("simpl-youtube-preview-open");
     if (activeSession === session) {
       activeSession = null;
+    }
+    if (instant) {
+      return;
+    }
+    if (session.ghost) {
+      playerCommand("ghostClear");
     }
     if (!navigateTo) {
       session.returnFocus?.focus?.({ preventScroll: true });
@@ -1496,6 +1504,7 @@
     const renderer = node.compactVideoRenderer;
     if (renderer?.videoId) {
       return {
+        renderer,
         id: renderer.videoId,
         title: textOf(renderer.title),
         channel: textOf(renderer.longBylineText || renderer.shortBylineText),
@@ -1607,6 +1616,33 @@
     recsTrack.append(message);
   };
 
+  // Hidden stand-ins for the first few recommendations. A real thumbnail
+  // element lets YouTube start its own hover preview (which never has ads);
+  // building them right after the list is parsed keeps a click quick.
+  const GHOST_LIMIT = 8;
+
+  const ghostCardFor = (id) => (
+    document.querySelector(`[data-simpl-ghost="${CSS.escape(id)}"]`)
+  );
+
+  const prepareGhosts = (videos) => {
+    let count = 0;
+    for (const video of videos) {
+      if (count >= GHOST_LIMIT) {
+        break;
+      }
+      if (!video.renderer || ghostCardFor(video.id)) {
+        continue;
+      }
+      count += 1;
+      try {
+        playerCommand("ghost", { videoId: video.id, renderer: video.renderer });
+      } catch {
+        // A renderer that cannot be sent just means no hidden preview.
+      }
+    }
+  };
+
   const loadRecommended = async (session) => {
     if (session.recsLoaded || session.recsLoading) {
       return;
@@ -1625,6 +1661,7 @@
       } else {
         renderRecommended(session, videos);
         session.recsLoaded = true;
+        prepareGhosts(videos);
       }
     } catch {
       if (!session.closing) {
@@ -1825,13 +1862,85 @@
     }
   };
 
-  const switchVideo = (session, target, { back = false } = {}) => {
+  // Try YouTube's own hover preview for the target (no ad). Resolves true
+  // once a fresh viewer has taken over, false if it should fall back.
+  const switchViaPreview = (session, target, back) => {
+    const card = ghostCardFor(target.id);
+    const anchor = card?.querySelector("a#thumbnail, a[href*='/watch']");
+    if (!card || !anchor || !isWatchUrl(anchor.href)) {
+      return Promise.resolve(false);
+    }
+    const previous = session.currentInfo;
+    const previousUrl = session.url;
+    session.switching = true;
+    toggleRecommended(session, false);
+    toggleDescription(session, false);
+    session.ui.heading.textContent = target.title || "";
+    session.ui.channelLabel.textContent = target.channel || "";
+    if (target.thumb) {
+      session.ui.poster.src = target.thumb;
+      session.ui.poster.hidden = false;
+    }
+    session.video.pause();
+    session.root.dataset.pending = "true";
+    session.root.dataset.state = "loading";
+    session.ui.status.textContent = "Loading…";
+    const revert = () => {
+      delete session.root.dataset.pending;
+      session.switching = false;
+    };
+    return new Promise((resolve) => {
+      const startedAt = Date.now();
+      const timer = setInterval(() => {
+        if (session.closing) {
+          clearInterval(timer);
+          resolve(true);
+          return;
+        }
+        const video = getPreviewVideo(card, anchor.href);
+        if (video && video !== session.video && video.isConnected) {
+          clearInterval(timer);
+          const history = back
+            ? session.history
+            : [...session.history, ...(previous ? [{ ...previous, url: previousUrl }] : [])];
+          const returnFocus = session.returnFocus;
+          closePreview(session, "", { instant: true });
+          openPreview({
+            anchor,
+            card,
+            instant: true,
+            history,
+            returnFocus,
+            info: { ...target, url: anchor.href }
+          });
+          resolve(true);
+        } else if (Date.now() - startedAt > 3500) {
+          clearInterval(timer);
+          revert();
+          resolve(false);
+        } else {
+          dispatchPreviewHover(card);
+        }
+      }, 100);
+      dispatchPreviewHover(card);
+    });
+  };
+
+  const switchVideo = (session, target, { back = false, noPreview = false } = {}) => {
     if (!session.video || session.switching || session.closing) {
       closePreview(session, target.url);
       return;
     }
     if (!/^[\w-]{11}$/.test(target.id || "")) {
       closePreview(session, target.url);
+      return;
+    }
+    if (!noPreview && ghostCardFor(target.id)) {
+      switchViaPreview(session, target, back).then((handled) => {
+        if (!handled && !session.closing) {
+          switchVideo(session, target, { back, noPreview: true });
+        }
+      });
       return;
     }
     const previous = session.currentInfo;
@@ -2043,10 +2152,11 @@
     setControlsVisible(session, true);
   };
 
-  const openPreview = ({ anchor, card }) => {
-    const originElement = getOriginElement(card, anchor);
-    const originRect = originElement.getBoundingClientRect();
-    const info = {
+  const openPreview = ({ anchor, card, instant = false, history = [], returnFocus = null, info: given = null }) => {
+    const ghost = Boolean(card.closest?.("#simpl-youtube-ghosts"));
+    const originElement = ghost ? null : getOriginElement(card, anchor);
+    const originRect = originElement ? originElement.getBoundingClientRect() : null;
+    const info = given || {
       ...getVideoInfo(card, anchor),
       id: videoIdFromUrl(anchor.href),
       url: anchor.href,
@@ -2116,7 +2226,8 @@
       url: anchor.href,
       originElement,
       originRect,
-      returnFocus: document.activeElement,
+      ghost,
+      returnFocus: returnFocus || document.activeElement,
       controller: new AbortController(),
       observer: null,
       pollTimer: null,
@@ -2137,7 +2248,7 @@
       qualityCurrent: "",
       recsOpen: false,
       descOpen: false,
-      history: [],
+      history: [...history],
       switching: false,
       currentInfo: info,
       descLoaded: false,
@@ -2164,7 +2275,10 @@
     activeSession = session;
     document.documentElement.classList.add("simpl-youtube-preview-open");
     document.documentElement.append(root);
-    animateDialogIn(ui.dialog, originRect);
+    ui.backVideo.hidden = session.history.length === 0;
+    if (!instant && originRect) {
+      animateDialogIn(ui.dialog, originRect);
+    }
 
     const signal = session.controller.signal;
     const on = (target, type, handler, options = {}) => (

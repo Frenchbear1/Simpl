@@ -1252,3 +1252,10 @@ simpl-youtube-preview[data-desc="open"] .simpl-youtube-preview-desc {
 .simpl-youtube-preview-topbar .simpl-youtube-preview-back-video[hidden] {
   display: none;
 }
+
+/* Instant feedback while a recommended video's own preview is starting */
+simpl-youtube-preview[data-pending="true"] .simpl-youtube-preview-poster {
+  opacity: 0.95;
+  filter: blur(14px) brightness(0.75);
+  transform: scale(1.06);
+}

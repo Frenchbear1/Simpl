@@ -460,12 +460,51 @@
     safeCall(() => api.setPlaybackQuality(level));
   };
 
+  // Hidden thumbnail stand-ins. Only the page world can hand YouTube's own
+  // renderer element its data, so the real hover preview can start for a
+  // video that is not on the current page.
+  const GHOST_HOST_ID = "simpl-youtube-ghosts";
+
+  const makeGhost = (videoId, renderer) => {
+    if (!/^[\w-]{11}$/.test(videoId || "") || !renderer || typeof renderer !== "object") {
+      return false;
+    }
+    let host = document.getElementById(GHOST_HOST_ID);
+    if (!host) {
+      host = document.createElement("div");
+      host.id = GHOST_HOST_ID;
+      host.style.cssText = "position:fixed;left:-10000px;top:0;width:420px;height:260px;" +
+        "overflow:hidden;opacity:0;pointer-events:none;";
+      host.setAttribute("aria-hidden", "true");
+      document.documentElement.append(host);
+    }
+    if (host.querySelector(`[data-simpl-ghost="${videoId}"]`)) {
+      return true;
+    }
+    try {
+      const element = document.createElement("ytd-compact-video-renderer");
+      element.setAttribute("data-simpl-ghost", videoId);
+      element.data = renderer;
+      host.append(element);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const runPlayerCommand = (raw) => {
     let command = {};
     try {
       command = JSON.parse(raw || "{}");
     } catch {
       return { ok: false };
+    }
+    if (command.action === "ghost") {
+      return { ok: makeGhost(command.videoId, command.renderer) };
+    }
+    if (command.action === "ghostClear") {
+      document.getElementById(GHOST_HOST_ID)?.remove();
+      return { ok: true };
     }
     const api = findPreviewPlayerApi();
     if (!api) {
