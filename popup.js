@@ -154,5 +154,15 @@
 
   refreshAdBlockStatus();
   refreshYoutubeSettings().catch(() => {});
+
+  // Expanded on YouTube; a collapsed dropdown everywhere else.
+  getActiveTab().then((tab) => {
+    try {
+      const host = new URL(tab?.url || "").hostname;
+      document.getElementById("youtubeSection").open = /(^|\.)youtube\.com$/i.test(host);
+    } catch {
+      // Leave it collapsed when the tab URL is unavailable.
+    }
+  }).catch(() => {});
   refresh();
 })();

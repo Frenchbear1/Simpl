@@ -131,22 +131,50 @@ button:disabled {
   border-top: 1px solid var(--line);
 }
 
-.youtube h2 {
+.youtube summary {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 6px;
+  padding: 4px 2px;
+  border-radius: 6px;
   color: #334155;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
 }
 
-.youtube h2 svg {
+.youtube summary::-webkit-details-marker {
+  display: none;
+}
+
+.youtube summary:hover {
+  color: #0f172a;
+}
+
+.youtube[open] summary {
+  margin-bottom: 4px;
+}
+
+.youtube .yt-logo {
   width: 16px;
   height: 16px;
   fill: #ff0033;
+}
+
+.youtube .yt-chevron {
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  fill: currentColor;
+  transition: transform 160ms ease;
+}
+
+.youtube[open] .yt-chevron {
+  transform: rotate(180deg);
 }
 
 .switch-row {
