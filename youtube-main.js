@@ -8,8 +8,6 @@
 
   const SKIP_EVENT = "simpl-youtube-skip-ad";
   const STRICT_ADS_EVENT = "simpl-youtube-strict-ads-state";
-  const TOGGLE_CAPTIONS_EVENT = "simpl-youtube-toggle-captions";
-  const CAPTIONS_STATE_EVENT = "simpl-youtube-captions-state";
   const SKIP_SELECTOR = [
     "button.ytp-skip-ad-button[id^='skip-button:']",
     "button.ytp-skip-ad-button",
@@ -191,33 +189,309 @@
     )
   );
 
-  const reportCaptionState = () => {
-    const button = getPreviewCaptionButton();
-    document.dispatchEvent(new CustomEvent(CAPTIONS_STATE_EVENT, {
-      detail: {
-        available: Boolean(button),
-        enabled: button?.getAttribute("aria-pressed") === "true"
-      }
-    }));
+  // ---- Preview player bridge -------------------------------------------
+  // The isolated-world viewer marks the moved inline player with
+  // data-simpl-preview-player. Only the page world can reach YouTube's player
+  // API (captions module, quality ranges, seekTo), so commands are relayed
+  // here as JSON strings and answered synchronously with a result event.
+  const PLAYER_COMMAND_EVENT = "simpl-youtube-player-command";
+  const PLAYER_RESULT_EVENT = "simpl-youtube-player-result";
+  const PLAYER_MARK_SELECTOR = "[data-simpl-preview-player='true']";
+  const QUALITY_ORDER = [
+    "highres", "hd2880", "hd2160", "hd1440", "hd1080", "hd720",
+    "large", "medium", "small", "tiny"
+  ];
+  const QUALITY_HEIGHT = {
+    highres: 4320,
+    hd2880: 2880,
+    hd2160: 2160,
+    hd1440: 1440,
+    hd1080: 1080,
+    hd720: 720,
+    large: 480,
+    medium: 360,
+    small: 240,
+    tiny: 144
   };
+  let cachedCaptionTracks = [];
 
-  const togglePreviewCaptions = () => {
-    const button = getPreviewCaptionButton();
-    if (button) {
+  const hasPlayerApi = (candidate) => (
+    Boolean(candidate) &&
+    typeof candidate.getPlayerState === "function" &&
+    (typeof candidate.setOption === "function" ||
+      typeof candidate.getAvailableQualityLevels === "function")
+  );
+
+  const findPreviewPlayerApi = () => {
+    const marked = document.querySelector(PLAYER_MARK_SELECTOR);
+    if (!marked) {
+      return null;
+    }
+    const candidates = [
+      marked,
+      marked.closest?.(".html5-video-player"),
+      marked.querySelector?.(".html5-video-player"),
+      marked.closest?.("ytd-player"),
+      marked.querySelector?.("ytd-player")
+    ];
+    for (const candidate of candidates) {
+      if (!candidate) {
+        continue;
+      }
+      if (hasPlayerApi(candidate)) {
+        return candidate;
+      }
       try {
-        nativeFocus.call(button, { preventScroll: true });
-        nativeClick.call(button);
+        const api = candidate.getPlayer?.() || candidate.player_ || null;
+        if (hasPlayerApi(api)) {
+          return api;
+        }
       } catch {
-        // YouTube may replace the preview control while it is being activated.
+        // ytd-player may not have created its API yet.
       }
     }
-    reportCaptionState();
-    setTimeout(reportCaptionState, 80);
-    setTimeout(reportCaptionState, 220);
+    return null;
   };
 
+  const safeCall = (fn, fallback) => {
+    try {
+      const value = fn();
+      return value === undefined ? fallback : value;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const trackLabel = (track) => {
+    const name = track?.displayName || track?.name;
+    if (typeof name === "string") {
+      return name;
+    }
+    if (name?.simpleText) {
+      return name.simpleText;
+    }
+    if (Array.isArray(name?.runs)) {
+      return name.runs.map((run) => run.text || "").join("");
+    }
+    return track?.languageName || track?.languageCode || "Captions";
+  };
+
+  const trackKey = (track) => (
+    `${track?.languageCode || ""}|${track?.kind || ""}|${track?.vss_id || track?.vssId || ""}`
+  );
+
+  const readCaptionTracks = (api) => {
+    let tracks = safeCall(() => api.getOption("captions", "tracklist"), []);
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      const response = safeCall(() => api.getPlayerResponse(), null);
+      tracks = response?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+    }
+    if (Array.isArray(tracks) && tracks.length > 0) {
+      cachedCaptionTracks = tracks;
+    }
+    return cachedCaptionTracks;
+  };
+
+  const currentCaptionTrack = (api) => {
+    const track = safeCall(() => api.getOption("captions", "track"), null);
+    return track && track.languageCode ? track : null;
+  };
+
+  const nativeCaptionButton = () => {
+    const marked = document.querySelector(PLAYER_MARK_SELECTOR);
+    const host = marked?.closest?.("ytd-video-preview") ||
+      document.querySelector("ytd-video-preview[data-simpl-preview-session='true']");
+    return (
+      host?.querySelector(".ytmClosedCaptioningButtonButton, .ytp-subtitles-button") ||
+      marked?.querySelector?.(".ytp-subtitles-button") ||
+      getPreviewCaptionButton()
+    );
+  };
+
+  const qualityLevels = (api) => {
+    const data = safeCall(() => api.getAvailableQualityData(), []);
+    const levels = new Map();
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item?.quality && item.quality !== "auto" && item.isPlayable !== false) {
+          levels.set(item.quality, item.qualityLabel || "");
+        }
+      }
+    }
+    for (const level of safeCall(() => api.getAvailableQualityLevels(), [])) {
+      if (level && level !== "auto" && !levels.has(level)) {
+        levels.set(level, "");
+      }
+    }
+    return [...levels.entries()]
+      .filter(([level]) => QUALITY_HEIGHT[level])
+      .sort((a, b) => QUALITY_ORDER.indexOf(a[0]) - QUALITY_ORDER.indexOf(b[0]))
+      .map(([level, label]) => ({
+        level,
+        label: label || `${QUALITY_HEIGHT[level]}p`,
+        height: QUALITY_HEIGHT[level]
+      }));
+  };
+
+  const playerStatus = (api) => {
+    const tracks = readCaptionTracks(api);
+    const current = currentCaptionTrack(api);
+    const button = nativeCaptionButton();
+    return {
+      api: true,
+      captions: {
+        available: tracks.length > 0 || Boolean(button),
+        enabled: Boolean(current) ||
+          (tracks.length === 0 && button?.getAttribute("aria-pressed") === "true"),
+        current: current ? trackKey(current) : "",
+        tracks: tracks.map((track) => ({
+          key: trackKey(track),
+          label: trackLabel(track),
+          languageCode: track.languageCode || "",
+          auto: track.kind === "asr"
+        }))
+      },
+      quality: {
+        levels: qualityLevels(api),
+        current: safeCall(() => api.getPlaybackQuality(), "") || "",
+        preferred: safeCall(() => api.getPreferredQuality?.(), "") || ""
+      }
+    };
+  };
+
+  const chooseTrack = (tracks, { key, languageCode }) => {
+    if (key) {
+      const exact = tracks.find((track) => trackKey(track) === key);
+      if (exact) {
+        return exact;
+      }
+    }
+    const wanted = (languageCode || navigator.language || "en").toLowerCase();
+    const base = wanted.split("-")[0];
+    const score = (track) => {
+      const code = String(track.languageCode || "").toLowerCase();
+      let value = 0;
+      if (code === wanted) {
+        value += 4;
+      } else if (code.split("-")[0] === base) {
+        value += 3;
+      }
+      if (track.kind !== "asr") {
+        value += 1;
+      }
+      return value;
+    };
+    return [...tracks].sort((a, b) => score(b) - score(a))[0] || null;
+  };
+
+  const setCaptions = (api, { enabled, key, languageCode }) => {
+    if (!enabled) {
+      safeCall(() => api.setOption("captions", "track", {}));
+      safeCall(() => api.unloadModule("captions"));
+      if (currentCaptionTrack(api)) {
+        const button = nativeCaptionButton();
+        if (button?.getAttribute("aria-pressed") === "true") {
+          nativeClick.call(button);
+        }
+      }
+      return;
+    }
+
+    safeCall(() => api.loadModule("captions"));
+    const tracks = readCaptionTracks(api);
+    const track = chooseTrack(tracks, { key, languageCode });
+    if (track) {
+      const option = { languageCode: track.languageCode };
+      if (track.kind) {
+        option.kind = track.kind;
+      }
+      // Prefer the player's own tracklist object when it has one.
+      const native = safeCall(() => api.getOption("captions", "tracklist"), [])
+        .find?.((item) => trackKey(item) === trackKey(track));
+      safeCall(() => api.setOption("captions", "track", native || option));
+    } else if (typeof api.toggleSubtitlesOn === "function") {
+      safeCall(() => api.toggleSubtitlesOn());
+    } else {
+      const button = nativeCaptionButton();
+      if (button && button.getAttribute("aria-pressed") !== "true") {
+        nativeClick.call(button);
+      }
+    }
+  };
+
+  const setQuality = (api, level) => {
+    if (!level || level === "auto") {
+      safeCall(() => api.setPlaybackQualityRange("auto", "auto"));
+      safeCall(() => api.setPlaybackQuality("auto"));
+      return;
+    }
+    safeCall(() => api.setPlaybackQualityRange(level, level));
+    safeCall(() => api.setPlaybackQuality(level));
+  };
+
+  const runPlayerCommand = (raw) => {
+    let command = {};
+    try {
+      command = JSON.parse(raw || "{}");
+    } catch {
+      return { ok: false };
+    }
+    const api = findPreviewPlayerApi();
+    if (!api) {
+      if (command.action === "captions") {
+        const button = nativeCaptionButton();
+        if (
+          button &&
+          (button.getAttribute("aria-pressed") === "true") !== Boolean(command.enabled)
+        ) {
+          nativeClick.call(button);
+        }
+      }
+      const button = nativeCaptionButton();
+      return {
+        ok: false,
+        status: {
+          api: false,
+          captions: {
+            available: Boolean(button),
+            enabled: button?.getAttribute("aria-pressed") === "true",
+            current: "",
+            tracks: []
+          },
+          quality: { levels: [], current: "", preferred: "" }
+        }
+      };
+    }
+
+    if (command.action === "captions") {
+      setCaptions(api, command);
+    } else if (command.action === "quality") {
+      setQuality(api, command.level);
+    } else if (command.action === "seek" && Number.isFinite(command.seconds)) {
+      safeCall(() => api.seekTo(command.seconds, true));
+    }
+    return { ok: true, status: playerStatus(api) };
+  };
+
+  document.addEventListener(PLAYER_COMMAND_EVENT, (event) => {
+    let id = "";
+    try {
+      id = JSON.parse(event.detail || "{}").id || "";
+    } catch {
+      // Ignore malformed requests.
+    }
+    let result;
+    try {
+      result = runPlayerCommand(event.detail);
+    } catch {
+      result = { ok: false };
+    }
+    document.dispatchEvent(new CustomEvent(PLAYER_RESULT_EVENT, {
+      detail: JSON.stringify({ id, ...result })
+    }));
+  }, true);
+
   document.addEventListener(SKIP_EVENT, skipCurrentAd, true);
-  document.addEventListener(TOGGLE_CAPTIONS_EVENT, togglePreviewCaptions, true);
   document.addEventListener(STRICT_ADS_EVENT, (event) => {
     strictAdsEnabled = event.detail === true;
     skipCurrentAd();

@@ -7,6 +7,10 @@
   const clearSite = document.getElementById("clearSite");
   const openOptions = document.getElementById("openOptions");
   const toggleAds = document.getElementById("toggleAds");
+  const youtubePreview = document.getElementById("youtubePreview");
+  const youtubeAdFilters = document.getElementById("youtubeAdFilters");
+  const YOUTUBE_PREVIEW_KEY = "simpl_youtube_preview_player_enabled";
+  const YOUTUBE_AD_FILTERS_KEY = "simpl_youtube_ad_filters_enabled";
 
   let strictAdsEnabled = true;
 
@@ -134,6 +138,21 @@
     }
   });
 
+  const refreshYoutubeSettings = async () => {
+    const data = await chrome.storage.local.get([YOUTUBE_PREVIEW_KEY, YOUTUBE_AD_FILTERS_KEY]);
+    youtubePreview.checked = data[YOUTUBE_PREVIEW_KEY] === true;
+    youtubeAdFilters.checked = data[YOUTUBE_AD_FILTERS_KEY] === true;
+  };
+
+  youtubePreview.addEventListener("change", () => {
+    chrome.storage.local.set({ [YOUTUBE_PREVIEW_KEY]: youtubePreview.checked });
+  });
+
+  youtubeAdFilters.addEventListener("change", () => {
+    chrome.storage.local.set({ [YOUTUBE_AD_FILTERS_KEY]: youtubeAdFilters.checked });
+  });
+
   refreshAdBlockStatus();
+  refreshYoutubeSettings().catch(() => {});
   refresh();
 })();

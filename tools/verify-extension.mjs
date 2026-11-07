@@ -105,23 +105,28 @@ for (const marker of [
   "window.addEventListener(\"click\", onClick, true)",
   "simpl-youtube-preview-controls",
   "simpl-youtube-preview-speed",
-  "simpl-youtube-preview-speed-button",
-  "simpl-youtube-toggle-captions"
+  "simpl-youtube-preview-settings-button",
+  "simpl-youtube-player-command",
+  "simpl_youtube_viewer_prefs"
 ]) {
   assert(youtubePreview.includes(marker), `YouTube preview marker is missing: ${marker}`);
 }
 for (const removedControl of [
-  "simpl-youtube-preview-quality",
   "simpl-youtube-preview-loop",
-  "simpl-youtube-preview-title-text",
-  "icon(\"settings\")"
+  "simpl-youtube-preview-title-text"
 ]) {
   assert(!youtubePreview.includes(removedControl), `Removed preview control remains: ${removedControl}`);
 }
 assert(
-  youtubeMain.includes("simpl-youtube-toggle-captions") &&
-  youtubeMain.includes("simpl-youtube-captions-state"),
-  "The main-world YouTube caption bridge is missing."
+  youtubeMain.includes("simpl-youtube-player-command") &&
+  youtubeMain.includes("simpl-youtube-player-result") &&
+  youtubeMain.includes("setPlaybackQualityRange") &&
+  youtubeMain.includes("\"captions\", \"track\""),
+  "The main-world YouTube player bridge is missing."
+);
+assert(
+  popup.includes("youtubePreview") && popup.includes("YouTube viewer"),
+  "The popup YouTube viewer section is missing."
 );
 for (const marker of [
   "YOUTUBE_AD_SPEED",

@@ -1265,10 +1265,11 @@ ${youtubeAdSelectors.join(",\n")} {
         .highlight {
           position: fixed;
           z-index: 1;
-          border: 2px solid #0ea5e9;
+          border: 2px solid #38a3d1;
           border-radius: 6px;
-          background: rgba(14, 165, 233, 0.12);
-          box-shadow: 0 0 0 99999px rgba(8, 13, 22, 0.18);
+          background: rgba(56, 163, 209, 0.1);
+          box-shadow: 0 0 0 99999px rgba(8, 13, 22, 0.14);
+          transition: left 70ms ease-out, top 70ms ease-out, width 70ms ease-out, height 70ms ease-out;
           display: none;
           pointer-events: none;
           box-sizing: border-box;
@@ -1283,10 +1284,10 @@ ${youtubeAdSelectors.join(",\n")} {
           text-overflow: ellipsis;
           white-space: nowrap;
           color: #f8fafc;
-          background: #0f172a;
-          border: 1px solid rgba(255, 255, 255, 0.16);
+          background: rgba(15, 23, 42, 0.92);
+          border: 0;
           border-radius: 6px;
-          padding: 4px 7px;
+          padding: 4px 8px;
           font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
           box-shadow: 0 10px 30px rgba(2, 6, 23, 0.3);
         }
@@ -1294,20 +1295,21 @@ ${youtubeAdSelectors.join(",\n")} {
         .toolbar {
           position: fixed;
           z-index: 3;
-          top: 16px;
+          top: 14px;
           left: 50%;
           transform: translateX(-50%);
           display: none;
           align-items: center;
           flex-wrap: nowrap;
-          gap: 7px;
+          gap: 4px;
           max-width: calc(100vw - 16px);
-          padding: 8px;
+          padding: 5px 6px 5px 4px;
           color: #0f172a;
-          background: rgba(255, 255, 255, 0.96);
-          border: 1px solid rgba(15, 23, 42, 0.14);
-          border-radius: 8px;
-          box-shadow: 0 18px 50px rgba(15, 23, 42, 0.22);
+          background: rgba(255, 255, 255, 0.92);
+          backdrop-filter: blur(14px) saturate(1.4);
+          border: 1px solid rgba(15, 23, 42, 0.08);
+          border-radius: 999px;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.16);
           pointer-events: auto;
           box-sizing: border-box;
         }
@@ -1319,8 +1321,9 @@ ${youtubeAdSelectors.join(",\n")} {
         .status {
           min-width: 0;
           flex: 1 1 180px;
-          color: #334155;
-          font: 13px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
+          padding: 0 8px 0 2px;
+          color: #475569;
+          font: 500 13px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -1328,24 +1331,41 @@ ${youtubeAdSelectors.join(",\n")} {
 
         button {
           appearance: none;
-          border: 1px solid #cbd5e1;
-          background: #fff;
-          color: #0f172a;
-          border-radius: 6px;
-          min-height: 32px;
+          border: 0;
+          background: transparent;
+          color: #334155;
+          border-radius: 999px;
+          min-height: 30px;
           padding: 0 11px;
-          font: 600 13px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+          font: 600 12.5px/1 Inter, ui-sans-serif, system-ui, sans-serif;
           cursor: pointer;
+          transition: background 120ms ease, color 120ms ease;
+        }
+
+        button:hover:not(:disabled) {
+          background: rgba(15, 23, 42, 0.06);
+          color: #0f172a;
+        }
+
+        button:focus-visible {
+          outline: 2px solid #38a3d1;
+          outline-offset: 1px;
         }
 
         button.primary {
-          border-color: #0284c7;
-          background: #0284c7;
+          margin-left: 2px;
+          padding: 0 14px;
+          background: #0f172a;
+          color: #fff;
+        }
+
+        button.primary:hover:not(:disabled) {
+          background: #1e293b;
           color: #fff;
         }
 
         button:disabled {
-          opacity: 0.45;
+          opacity: 0.38;
           cursor: not-allowed;
         }
 
@@ -1383,11 +1403,12 @@ ${youtubeAdSelectors.join(",\n")} {
           top: calc(100% + 3px);
           transform: translateX(-50%);
           margin: 0;
-          padding: 1px 4px;
+          padding: 2px 6px;
           color: #64748b;
-          background: rgba(255, 255, 255, 0.92);
-          border-radius: 4px;
-          font: 11px/1.25 Inter, ui-sans-serif, system-ui, sans-serif;
+          background: rgba(255, 255, 255, 0.9);
+          border-radius: 999px;
+          box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
+          font: 500 10.5px/1.25 Inter, ui-sans-serif, system-ui, sans-serif;
           text-align: center;
           white-space: nowrap;
           pointer-events: none;
