@@ -59,6 +59,8 @@
       forward: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2l5 4-5 4V7a5 5 0 1 0 5 5h2a7 7 0 1 1-7-7z"/><text x="12" y="15.2" text-anchor="middle" font-size="6.5" font-weight="700" font-family="Arial, sans-serif">10</text></svg>',
       quality: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><text x="12" y="14.9" text-anchor="middle" font-size="7.5" font-weight="800" font-family="Arial, sans-serif" fill="currentColor" stroke="none">HD</text></svg>',
       chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.4 15.4 4.6-4.6 4.6 4.6L18 14l-6-6-6 6z"/></svg>',
+      glass: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.4"/></svg>',
+      solid: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor"/></svg>',
       external: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>',
       pip: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7H5v10h5v2H3V5h18v7h-2V7zm-7 5h9v7h-9v-7zm2 2v3h5v-3h-5z"/></svg>',
       fullscreen: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zm-3-12v2h3v3h2V5h-5z"/></svg>',
@@ -296,6 +298,19 @@
             <button class="simpl-youtube-preview-close simpl-youtube-preview-icon-button" type="button" aria-label="Close preview" title="Close (Esc)">${icon("close")}</button>
           </div>
           <div class="simpl-youtube-preview-caps" data-pos="bottom-center"></div>
+          <div class="simpl-youtube-preview-desc" data-solid="false" aria-hidden="true">
+            <div class="simpl-youtube-preview-desc-head">
+              <div class="simpl-youtube-preview-desc-heading">
+                <span class="simpl-youtube-preview-desc-title"></span>
+                <span class="simpl-youtube-preview-desc-meta"></span>
+              </div>
+              <div class="simpl-youtube-preview-desc-modes" role="group" aria-label="Panel background">
+                <button class="simpl-youtube-preview-desc-glass" type="button" aria-pressed="true" aria-label="Transparent background" title="Transparent">${icon("glass")}</button>
+                <button class="simpl-youtube-preview-desc-solid" type="button" aria-pressed="false" aria-label="Solid background" title="Solid">${icon("solid")}</button>
+              </div>
+            </div>
+            <div class="simpl-youtube-preview-desc-body" tabindex="0"></div>
+          </div>
           <div class="simpl-youtube-preview-toast" aria-live="polite"></div>
           <div class="simpl-youtube-preview-controls">
             <div class="simpl-youtube-preview-recs" aria-hidden="true">
@@ -326,9 +341,14 @@
                 </div>
                 <span class="simpl-youtube-preview-time">0:00 / 0:00</span>
               </div>
-              <button class="simpl-youtube-preview-recs-toggle" type="button" aria-expanded="false" title="Recommended videos (r)">
-                <span>Recommended</span>${icon("chevron")}
-              </button>
+              <div class="simpl-youtube-preview-center">
+                <button class="simpl-youtube-preview-desc-toggle" type="button" aria-expanded="false" title="Description (d)">
+                  <span>Description</span>${icon("chevron")}
+                </button>
+                <button class="simpl-youtube-preview-recs-toggle" type="button" aria-expanded="false" title="Recommended videos (r)">
+                  <span>Recommended</span>${icon("chevron")}
+                </button>
+              </div>
               <div class="simpl-youtube-preview-control-group simpl-youtube-preview-right-controls">
                 <button class="simpl-youtube-preview-cc simpl-youtube-preview-text-button" type="button" aria-label="Subtitles/closed captions" aria-pressed="false" title="Subtitles/closed captions (c)" disabled>CC</button>
                 <div class="simpl-youtube-preview-quality-wrap">
@@ -426,6 +446,7 @@
       !session.video.paused &&
       !menusOpen(session) &&
       !session.recsOpen &&
+      !session.descOpen &&
       !session.scrubbing &&
       !session.overControls
     ) {
@@ -1131,6 +1152,7 @@
     setTimeout(() => {
       if (activeSession === session && !session.closing) {
         loadRecommended(session);
+        loadDescription(session);
       }
     }, 700);
     video.play().then(() => {
@@ -1491,6 +1513,156 @@
     }
   };
 
+  // ---- Description panel -------------------------------------------------
+
+  const TOKEN = /(https?:\/\/[^\s<>"')]+[^\s<>"').,;:!?])|((?:\d{1,2}:)?[0-5]?\d:[0-5]\d)(?![\d:])/g;
+
+  const parseTimestamp = (text) => (
+    text.split(":").reduce((total, part) => total * 60 + Number(part), 0)
+  );
+
+  // Plain text in, DOM nodes out: URLs become links, timestamps seek the video.
+  const linkifyInto = (container, text) => {
+    let last = 0;
+    for (const match of text.matchAll(TOKEN)) {
+      if (match.index > last) {
+        container.append(text.slice(last, match.index));
+      }
+      if (match[1]) {
+        let url = null;
+        try {
+          url = new URL(match[1]);
+        } catch {
+          url = null;
+        }
+        if (url && /^https?:$/.test(url.protocol)) {
+          const link = document.createElement("a");
+          link.href = url.href;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = match[1];
+          container.append(link);
+        } else {
+          container.append(match[1]);
+        }
+      } else {
+        const stamp = document.createElement("button");
+        stamp.type = "button";
+        stamp.className = "simpl-youtube-preview-stamp";
+        stamp.dataset.seconds = String(parseTimestamp(match[2]));
+        stamp.textContent = match[2];
+        container.append(stamp);
+      }
+      last = match.index + match[0].length;
+    }
+    if (last < text.length) {
+      container.append(text.slice(last));
+    }
+  };
+
+  const findKey = (node, key, depth = 0) => {
+    if (!node || typeof node !== "object" || depth > 12) {
+      return null;
+    }
+    if (node[key]) {
+      return node[key];
+    }
+    for (const value of Object.values(node)) {
+      const found = findKey(value, key, depth + 1);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  };
+
+  const buildDescriptionInfo = ({ data, player }, session) => {
+    const details = player?.videoDetails || {};
+    const primary = findKey(data?.contents?.twoColumnWatchNextResults?.results, "videoPrimaryInfoRenderer");
+    const secondary = findKey(data?.contents?.twoColumnWatchNextResults?.results, "videoSecondaryInfoRenderer");
+    const views = textOf(primary?.viewCount?.videoViewCountRenderer?.viewCount) ||
+      (details.viewCount
+        ? `${new Intl.NumberFormat().format(Number(details.viewCount))} views`
+        : "");
+    const date = textOf(primary?.dateText) ||
+      player?.microformat?.playerMicroformatRenderer?.publishDate || "";
+    const description = details.shortDescription ||
+      secondary?.attributedDescription?.content ||
+      textOf(secondary?.description) || "";
+    return {
+      title: details.title || session.ui.descTitle.textContent,
+      channel: details.author || "",
+      meta: [details.author, views, date].filter(Boolean).join(" · "),
+      description: String(description).replace(/\r\n?/g, "\n").trim()
+    };
+  };
+
+  const renderDescription = (session, info) => {
+    const { descTitle, descMeta, descBody } = session.ui;
+    descTitle.textContent = info.title || "";
+    descMeta.textContent = info.meta || "";
+    descBody.replaceChildren();
+    if (!info.description) {
+      descBody.textContent = "This video has no description.";
+      return;
+    }
+    linkifyInto(descBody, info.description);
+  };
+
+  const loadDescription = async (session) => {
+    if (session.descLoaded || session.descLoading) {
+      return;
+    }
+    session.descLoading = true;
+    session.ui.descBody.textContent = "Loading description…";
+    try {
+      const page = await getWatchPage(session);
+      if (session.closing) {
+        return;
+      }
+      renderDescription(session, buildDescriptionInfo(page, session));
+      session.descLoaded = true;
+    } catch {
+      if (!session.closing) {
+        const { descBody } = session.ui;
+        descBody.replaceChildren("Couldn't load the description. ");
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "simpl-youtube-preview-stamp";
+        retry.dataset.retry = "true";
+        retry.textContent = "Try again";
+        descBody.append(retry);
+      }
+    } finally {
+      session.descLoading = false;
+    }
+  };
+
+  const applyDescriptionMode = (session) => {
+    const solid = prefs.descSolid === true;
+    const { desc, descGlass, descSolid } = session.ui;
+    desc.dataset.solid = String(solid);
+    descGlass.setAttribute("aria-pressed", String(!solid));
+    descSolid.setAttribute("aria-pressed", String(solid));
+  };
+
+  const toggleDescription = (session, force) => {
+    const open = typeof force === "boolean" ? force : !session.descOpen;
+    if (open === session.descOpen) {
+      return;
+    }
+    session.descOpen = open;
+    session.root.dataset.desc = open ? "open" : "closed";
+    session.ui.desc.setAttribute("aria-hidden", String(!open));
+    session.ui.descToggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      closeMenus(session);
+      toggleRecommended(session, false);
+      loadDescription(session);
+    }
+    setControlsVisible(session, true);
+  };
+
   // ---- Seek-bar preview (YouTube storyboard sprite sheets) --------------
 
   const parseStoryboard = (spec, duration) => {
@@ -1614,6 +1786,7 @@
     session.ui.recsToggle.setAttribute("aria-expanded", String(open));
     if (open) {
       closeMenus(session);
+      toggleDescription(session, false);
       loadRecommended(session);
     }
     setControlsVisible(session, true);
@@ -1659,6 +1832,13 @@
       qualityButton: $("quality-button"),
       qualityMenu: $("quality-menu"),
       qualityBadge: $("quality-badge"),
+      descToggle: $("desc-toggle"),
+      desc: $("desc"),
+      descTitle: $("desc-title"),
+      descMeta: $("desc-meta"),
+      descBody: $("desc-body"),
+      descGlass: $("desc-glass"),
+      descSolid: $("desc-solid"),
       recsToggle: $("recs-toggle"),
       recs: $("recs"),
       recsTrack: $("recs-track"),
@@ -1695,6 +1875,8 @@
       qualityLevels: [],
       qualityCurrent: "",
       recsOpen: false,
+      descOpen: false,
+      descLoaded: false,
       recsLoaded: false,
       qualityApplied: false,
       captionsTouched: false,
@@ -1811,6 +1993,30 @@
       setQuality(session, option.dataset.level);
       closeMenus(session);
     });
+    applyDescriptionMode(session);
+    on(ui.descToggle, "click", () => toggleDescription(session));
+    on(ui.descGlass, "click", () => {
+      savePrefs({ descSolid: false });
+      applyDescriptionMode(session);
+    });
+    on(ui.descSolid, "click", () => {
+      savePrefs({ descSolid: true });
+      applyDescriptionMode(session);
+    });
+    on(ui.descBody, "click", (event) => {
+      const stamp = event.target.closest("button.simpl-youtube-preview-stamp");
+      if (!stamp) {
+        return;
+      }
+      if (stamp.dataset.retry) {
+        session.descLoaded = false;
+        session.watchPage = null;
+        loadDescription(session);
+        return;
+      }
+      seekTo(session, Number(stamp.dataset.seconds));
+      showToast(session, formatTime(Number(stamp.dataset.seconds)));
+    });
     on(ui.recsToggle, "click", () => toggleRecommended(session));
     on(ui.recsTrack, "wheel", (event) => {
       if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
@@ -1862,7 +2068,7 @@
     });
     on(ui.media, "mouseleave", () => {
       session.overControls = false;
-      if (session.video && !session.video.paused && !menusOpen(session) && !session.recsOpen) {
+      if (session.video && !session.video.paused && !menusOpen(session) && !session.recsOpen && !session.descOpen) {
         setControlsVisible(session, false);
       }
     });
@@ -1877,17 +2083,18 @@
         return;
       }
       if (
-        session.recsOpen &&
-        !event.target.closest(".simpl-youtube-preview-controls, .simpl-youtube-preview-topbar")
+        (session.recsOpen || session.descOpen) &&
+        !event.target.closest(".simpl-youtube-preview-controls, .simpl-youtube-preview-topbar, .simpl-youtube-preview-desc")
       ) {
         event.preventDefault();
         event.stopPropagation();
         toggleRecommended(session, false);
+        toggleDescription(session, false);
         return;
       }
       if (
         !session.video ||
-        event.target.closest("button, input, select, label, a, .simpl-youtube-preview-caps, .simpl-youtube-preview-settings-menu, .simpl-youtube-preview-quality-menu, .simpl-youtube-preview-topbar")
+        event.target.closest("button, input, select, label, a, .simpl-youtube-preview-desc, .simpl-youtube-preview-caps, .simpl-youtube-preview-settings-menu, .simpl-youtube-preview-quality-menu, .simpl-youtube-preview-topbar")
       ) {
         return;
       }
@@ -1954,6 +2161,8 @@
       event.stopPropagation();
       if (menusOpen(session)) {
         closeMenus(session);
+      } else if (session.descOpen) {
+        toggleDescription(session, false);
       } else if (session.recsOpen) {
         toggleRecommended(session, false);
       } else if (document.fullscreenElement) {
@@ -2003,6 +2212,8 @@
       session.ui.qualityButton.click();
     } else if (key === "r") {
       toggleRecommended(session);
+    } else if (key === "d") {
+      toggleDescription(session);
     } else if (key === "f") {
       setFullscreen(session);
     } else if (key === "i") {
