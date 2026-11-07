@@ -303,7 +303,10 @@
             <div class="simpl-youtube-preview-timeline-wrap">
               <div class="simpl-youtube-preview-buffered"></div>
               <input class="simpl-youtube-preview-timeline" type="range" min="0" max="1000" value="0" aria-label="Video position" disabled>
-              <span class="simpl-youtube-preview-scrub-time" hidden>0:00</span>
+              <div class="simpl-youtube-preview-scrub" hidden>
+                <div class="simpl-youtube-preview-scrub-thumb" hidden></div>
+                <span class="simpl-youtube-preview-scrub-time">0:00</span>
+              </div>
             </div>
             <div class="simpl-youtube-preview-control-row">
               <div class="simpl-youtube-preview-control-group">
@@ -643,16 +646,13 @@
     }
   };
 
-  const setCaptions = (session, wanted, track = null) => {
-    session.captionsApplied = true;
+  const setCaptions = (session, wanted, track = null, auto = false) => {
+    if (!auto) {
+      session.captionsTouched = true;
+    }
+    // Only the language is remembered; captions always start off.
     if (track) {
-      savePrefs({
-        captions: wanted,
-        captionKey: track.key,
-        captionLanguage: track.languageCode
-      });
-    } else {
-      savePrefs({ captions: wanted });
+      savePrefs({ captionKey: track.key, captionLanguage: track.languageCode });
     }
 
     const result = playerCommand("captions", {
@@ -718,20 +718,13 @@
     }
   };
 
-  // Re-apply the viewer's last captions choice once the player reports
-  // caption data (inline previews often auto-enable captions while muted).
-  const applySavedCaptions = (session, status) => {
-    if (
-      session.captionsApplied ||
-      typeof prefs.captions !== "boolean" ||
-      !status?.captions?.available
-    ) {
+  // Captions start off: YouTube's hover preview may switch them on by itself,
+  // so turn them off until the user asks for them in this viewer.
+  const applyCaptionsDefault = (session, status) => {
+    if (session.captionsTouched || status?.captions?.enabled !== true) {
       return;
     }
-    session.captionsApplied = true;
-    if ((status.captions.enabled === true) !== prefs.captions) {
-      setCaptions(session, prefs.captions);
-    }
+    setCaptions(session, false, null, true);
   };
 
   const populateSpeed = (session) => {
@@ -934,7 +927,7 @@
     window.dispatchEvent(new Event("resize"));
 
     const status = refreshPlayerStatus(session);
-    applySavedCaptions(session, status);
+    applyCaptionsDefault(session, status);
     applySavedQuality(session, status);
     // Captions/quality data often arrives a moment after playback starts.
     session.statusTimer = setInterval(() => {
@@ -942,7 +935,7 @@
         return;
       }
       const latest = refreshPlayerStatus(session);
-      applySavedCaptions(session, latest);
+      applyCaptionsDefault(session, latest);
       applySavedQuality(session, latest);
     }, 2000);
     scheduleStatusRefresh(session, [300, 900]);
@@ -1064,9 +1057,9 @@
   // viewer fetches that page (same origin, with the user's own cookies) and
   // reads the related videos out of its embedded ytInitialData.
 
-  const extractInitialData = (html) => {
-    const marker = html.indexOf("ytInitialData");
-    const start = marker < 0 ? -1 : html.indexOf("{", marker);
+  const extractJsonVariable = (html, name) => {
+    const match = new RegExp(`${name}["']?\\]?\\s*=\\s*\\{`).exec(html);
+    const start = match ? match.index + match[0].length - 1 : -1;
     if (start < 0) {
       return null;
     }
@@ -1096,6 +1089,31 @@
       }
     }
     return null;
+  };
+
+  // One fetch of the real watch page serves both the recommendations and the
+  // seek-bar storyboards. Same origin, so it uses the user's own cookies.
+  const getWatchPage = (session) => {
+    if (!session.watchPage) {
+      const id = videoIdFromUrl(session.url);
+      session.watchPage = fetch(`/watch?v=${encodeURIComponent(id)}`, {
+        credentials: "same-origin",
+        signal: session.controller.signal
+      }).then(async (response) => {
+        if (!response.ok) {
+          throw new Error("bad response");
+        }
+        const html = await response.text();
+        return {
+          data: extractJsonVariable(html, "ytInitialData"),
+          player: extractJsonVariable(html, "ytInitialPlayerResponse")
+        };
+      });
+      session.watchPage.catch(() => {
+        session.watchPage = null;
+      });
+    }
+    return session.watchPage;
   };
 
   const textOf = (value) => (
@@ -1231,14 +1249,7 @@
     showRecommendedMessage(session, "Loading recommendations…");
     try {
       const id = videoIdFromUrl(session.url);
-      const response = await fetch(`/watch?v=${encodeURIComponent(id)}`, {
-        credentials: "same-origin",
-        signal: session.controller.signal
-      });
-      if (!response.ok) {
-        throw new Error("bad response");
-      }
-      const data = extractInitialData(await response.text());
+      const { data } = await getWatchPage(session);
       const videos = collectRecommended(data, id);
       if (session.closing) {
         return;
@@ -1256,6 +1267,121 @@
     } finally {
       session.recsLoading = false;
     }
+  };
+
+  // ---- Seek-bar preview (YouTube storyboard sprite sheets) --------------
+
+  const parseStoryboard = (spec, duration) => {
+    const parts = String(spec || "").split("|");
+    const base = parts.shift();
+    const levels = parts.map((part, index) => {
+      const [w, h, count, cols, rows, interval, name, sigh] = part.split("#");
+      const level = {
+        index,
+        width: Number(w),
+        height: Number(h),
+        count: Number(count),
+        cols: Number(cols),
+        rows: Number(rows),
+        interval: Number(interval) / 1000,
+        name,
+        sigh
+      };
+      if (!(level.interval > 0) && level.count > 0 && duration > 0) {
+        level.interval = duration / level.count;
+      }
+      return level;
+    }).filter((level) => (
+      level.width > 0 && level.height > 0 && level.count > 0 &&
+      level.cols > 0 && level.rows > 0 && level.interval > 0
+    ));
+    if (!base || levels.length === 0) {
+      return null;
+    }
+    // Prefer the smallest sheet that is still sharp at preview size.
+    const level = levels.find((item) => item.width >= 160) || levels[levels.length - 1];
+    return { base, level };
+  };
+
+  const storyboardSheetUrl = ({ base, level }, sheet) => {
+    try {
+      const url = new URL(
+        base.replace("$L", level.index).replace("$N", level.name).replace("$M", sheet),
+        location.href
+      );
+      if (level.sigh) {
+        url.searchParams.set("sigh", level.sigh);
+      }
+      return url.href;
+    } catch {
+      return "";
+    }
+  };
+
+  const loadStoryboard = (session) => {
+    if (session.storyboardPromise) {
+      return;
+    }
+    const duration = session.video?.duration || 0;
+    session.storyboardPromise = (async () => {
+      let spec = playerCommand("storyboard")?.spec || "";
+      if (!spec) {
+        const { player } = await getWatchPage(session);
+        spec = player?.storyboards?.playerStoryboardSpecRenderer?.spec ||
+          player?.storyboards?.playerLiveStoryboardSpecRenderer?.spec || "";
+      }
+      session.storyboard = parseStoryboard(spec, session.video?.duration || duration);
+      session.sheets = new Map();
+    })().catch(() => {
+      session.storyboard = null;
+    });
+  };
+
+  const sheetImage = (session, sheet) => {
+    let image = session.sheets.get(sheet);
+    if (!image) {
+      image = new Image();
+      image.src = storyboardSheetUrl(session.storyboard, sheet);
+      session.sheets.set(sheet, image);
+    }
+    return image;
+  };
+
+  const showScrubPreview = (session, ratio, width) => {
+    const { scrub, scrubThumb, scrubTime } = session.ui;
+    const duration = session.video?.duration;
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+    const seconds = duration * ratio;
+    scrubTime.textContent = formatTime(seconds);
+    scrub.hidden = false;
+    const board = session.storyboard;
+    scrubThumb.hidden = !board;
+    let boxWidth = scrub.offsetWidth || 60;
+    if (board) {
+      const { level } = board;
+      const perSheet = level.cols * level.rows;
+      const frame = Math.max(0, Math.min(level.count - 1, Math.floor(seconds / level.interval)));
+      const sheet = Math.floor(frame / perSheet);
+      const slot = frame % perSheet;
+      const scale = 176 / level.width;
+      const image = sheetImage(session, sheet);
+      scrubThumb.style.width = `${level.width * scale}px`;
+      scrubThumb.style.height = `${level.height * scale}px`;
+      scrubThumb.style.backgroundImage = `url("${image.src}")`;
+      scrubThumb.style.backgroundSize = `${level.cols * level.width * scale}px ${level.rows * level.height * scale}px`;
+      scrubThumb.style.backgroundPosition =
+        `${-(slot % level.cols) * level.width * scale}px ${-Math.floor(slot / level.cols) * level.height * scale}px`;
+      // Warm the next sheet so scrubbing across a boundary doesn't flash.
+      if (sheet + 1 < Math.ceil(level.count / perSheet)) {
+        sheetImage(session, sheet + 1);
+      }
+      boxWidth = 176;
+    }
+    const half = boxWidth / 2;
+    const x = Math.max(half, Math.min(width - half, ratio * width));
+    scrub.style.left = `${x}px`;
   };
 
   const toggleRecommended = (session, force) => {
@@ -1296,6 +1422,8 @@
       time: $("time"),
       timeline: $("timeline"),
       buffered: $("buffered"),
+      scrub: $("scrub"),
+      scrubThumb: $("scrub-thumb"),
       scrubTime: $("scrub-time"),
       mute: $("mute"),
       volume: $("volume"),
@@ -1343,7 +1471,11 @@
       recsOpen: false,
       recsLoaded: false,
       qualityApplied: false,
-      captionsApplied: false,
+      captionsTouched: false,
+      storyboard: null,
+      storyboardPromise: null,
+      sheets: new Map(),
+      watchPage: null,
       scrubbing: false,
       overControls: false,
       userPaused: false,
@@ -1388,19 +1520,15 @@
       seekTo(session, timelineSeconds());
       setControlsVisible(session, true);
     });
+    on(ui.timeline, "pointerenter", () => loadStoryboard(session));
     on(ui.timeline, "pointermove", (event) => {
-      const duration = session.video?.duration;
-      if (!Number.isFinite(duration) || duration <= 0) {
-        return;
-      }
       const rect = ui.timeline.getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-      ui.scrubTime.hidden = false;
-      ui.scrubTime.textContent = formatTime(duration * ratio);
-      ui.scrubTime.style.left = `${ratio * 100}%`;
+      loadStoryboard(session);
+      showScrubPreview(session, ratio, rect.width);
     });
     on(ui.timeline, "pointerleave", () => {
-      ui.scrubTime.hidden = true;
+      ui.scrub.hidden = true;
     });
 
     on(ui.mute, "click", () => {

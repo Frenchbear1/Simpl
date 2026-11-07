@@ -475,6 +475,12 @@
       setCaptions(api, command);
     } else if (command.action === "quality") {
       setQuality(api, command.level);
+    } else if (command.action === "storyboard") {
+      const response = safeCall(() => api.getPlayerResponse(), null);
+      return {
+        ok: true,
+        spec: response?.storyboards?.playerStoryboardSpecRenderer?.spec || ""
+      };
     } else if (command.action === "seek" && Number.isFinite(command.seconds)) {
       safeCall(() => api.seekTo(command.seconds, true));
     }
