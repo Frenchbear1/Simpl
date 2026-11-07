@@ -1042,6 +1042,8 @@ simpl-youtube-preview[data-controls="visible"][data-recs="open"] .simpl-youtube-
 }
 
 .simpl-youtube-preview-cap {
+  position: relative;
+  padding: 0 0.7em;
   color: #fff;
   font: 500 calc(clamp(15px, 1.55vw, 24px) * var(--simpl-caps-size)) / 1.75 Roboto, "YouTube Sans", Arial, sans-serif;
   text-align: center;
@@ -1053,14 +1055,21 @@ simpl-youtube-preview[data-controls="visible"][data-recs="open"] .simpl-youtube-
   filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.35));
 }
 
-/* Inline highlight: wraps with the text so every row gets its own rounded
-   background that hugs that row's width. */
+/* One continuous background traced around the rows (see drawBubble). */
+.simpl-youtube-preview-cap-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.simpl-youtube-preview-cap-bg path {
+  fill: rgba(14, 14, 18, 0.8);
+}
+
 .simpl-youtube-preview-cap-text {
-  padding: 0.12em 0.6em;
-  border-radius: 0.6em;
-  background: rgba(14, 14, 18, 0.8);
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
+  position: relative;
 }
 
 .simpl-youtube-preview-caps[data-pos$="left"] .simpl-youtube-preview-cap {

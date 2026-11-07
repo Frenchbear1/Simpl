@@ -822,15 +822,128 @@
     return bubble.animate(keyframes, { fill: "both", ...options });
   };
 
-  // One inline span so the rounded background hugs every wrapped row.
+  // The text sits in one inline span; the background is a single SVG shape
+  // traced around the measured rows, so rows join with smooth concave curves
+  // and every row's edge hugs its own text.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
   const setBubbleText = (bubble, text) => {
-    let hug = bubble.firstElementChild;
+    let hug = bubble.querySelector(".simpl-youtube-preview-cap-text");
     if (!hug) {
+      const svg = document.createElementNS(SVG_NS, "svg");
+      svg.setAttribute("class", "simpl-youtube-preview-cap-bg");
+      svg.setAttribute("aria-hidden", "true");
+      svg.append(document.createElementNS(SVG_NS, "path"));
       hug = document.createElement("span");
       hug.className = "simpl-youtube-preview-cap-text";
-      bubble.replaceChildren(hug);
+      bubble.replaceChildren(svg, hug);
     }
     hug.textContent = text;
+  };
+
+  // Closed polygon (clockwise, y down) -> path with rounded corners. Convex
+  // corners curve outward, concave ones curve inward.
+  const roundedPath = (input, radius) => {
+    const points = input.filter((point, index) => {
+      const prev = input[(index + input.length - 1) % input.length];
+      return point[0] !== prev[0] || point[1] !== prev[1];
+    });
+    const corners = points.filter((point, index) => {
+      const prev = points[(index + points.length - 1) % points.length];
+      const next = points[(index + 1) % points.length];
+      return (point[0] - prev[0]) * (next[1] - point[1]) -
+        (point[1] - prev[1]) * (next[0] - point[0]) !== 0;
+    });
+    const count = corners.length;
+    const length = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const toward = (from, to, distance) => {
+      const total = length(from, to) || 1;
+      return [
+        from[0] + ((to[0] - from[0]) / total) * distance,
+        from[1] + ((to[1] - from[1]) / total) * distance
+      ];
+    };
+    let path = "";
+    corners.forEach((point, index) => {
+      const prev = corners[(index + count - 1) % count];
+      const next = corners[(index + 1) % count];
+      const rad = Math.min(radius, length(prev, point) / 2, length(point, next) / 2);
+      const start = toward(point, prev, rad);
+      const end = toward(point, next, rad);
+      const cross = (point[0] - prev[0]) * (next[1] - point[1]) -
+        (point[1] - prev[1]) * (next[0] - point[0]);
+      path += `${index === 0 ? "M" : "L"}${start[0].toFixed(2)} ${start[1].toFixed(2)}`;
+      path += `A${rad.toFixed(2)} ${rad.toFixed(2)} 0 0 ${cross > 0 ? 1 : 0} ${end[0].toFixed(2)} ${end[1].toFixed(2)}`;
+    });
+    return `${path}Z`;
+  };
+
+  const drawBubble = (bubble) => {
+    const hug = bubble.querySelector(".simpl-youtube-preview-cap-text");
+    const svg = bubble.querySelector(".simpl-youtube-preview-cap-bg");
+    if (!hug?.firstChild || !svg || !bubble.offsetWidth) {
+      return;
+    }
+    const box = bubble.getBoundingClientRect();
+    // Undo the entrance animation's scale so measurements stay in CSS px.
+    const sx = box.width / bubble.offsetWidth || 1;
+    const sy = box.height / bubble.offsetHeight || 1;
+    const style = getComputedStyle(hug);
+    const fontSize = parseFloat(style.fontSize) || 16;
+    const pitch = parseFloat(style.lineHeight) || fontSize * 1.75;
+    const padX = fontSize * 0.7;
+    const range = document.createRange();
+    range.selectNodeContents(hug);
+    const fragments = [...range.getClientRects()]
+      .filter((rect) => rect.width > 0)
+      .sort((a, b) => a.top - b.top || a.left - b.left);
+    const rows = [];
+    for (const rect of fragments) {
+      const row = rows[rows.length - 1];
+      if (row && rect.top - row.top < pitch / 2) {
+        row.left = Math.min(row.left, rect.left);
+        row.right = Math.max(row.right, rect.right);
+      } else {
+        rows.push({ top: rect.top, height: rect.height, left: rect.left, right: rect.right });
+      }
+    }
+    if (rows.length === 0) {
+      return;
+    }
+    const top0 = (rows[0].top - box.top) / sy - (pitch - rows[0].height / sy) / 2;
+    const lefts = rows.map((row) => (row.left - box.left) / sx - padX);
+    const rights = rows.map((row) => (row.right - box.left) / sx + padX);
+    // Near-equal neighbours share one edge so the outline doesn't wobble.
+    const snap = fontSize * 0.45;
+    for (let i = 1; i < rows.length; i += 1) {
+      if (Math.abs(rights[i] - rights[i - 1]) < snap) {
+        rights[i] = rights[i - 1] = Math.max(rights[i], rights[i - 1]);
+      }
+      if (Math.abs(lefts[i] - lefts[i - 1]) < snap) {
+        lefts[i] = lefts[i - 1] = Math.min(lefts[i], lefts[i - 1]);
+      }
+    }
+    const n = rows.length;
+    const topOf = (i) => top0 + i * pitch;
+    const points = [[lefts[0], topOf(0)], [rights[0], topOf(0)]];
+    for (let i = 0; i < n - 1; i += 1) {
+      points.push([rights[i], topOf(i + 1)], [rights[i + 1], topOf(i + 1)]);
+    }
+    points.push([rights[n - 1], topOf(n)], [lefts[n - 1], topOf(n)]);
+    for (let i = n - 1; i > 0; i -= 1) {
+      points.push([lefts[i], topOf(i)], [lefts[i - 1], topOf(i)]);
+    }
+    svg.setAttribute("width", String(bubble.offsetWidth));
+    svg.setAttribute("height", String(bubble.offsetHeight));
+    svg.firstElementChild.setAttribute("d", roundedPath(points, fontSize * 0.62));
+  };
+
+  const watchBubble = (bubble) => {
+    drawBubble(bubble);
+    if (typeof ResizeObserver === "function") {
+      bubble.resizeObserver = new ResizeObserver(() => drawBubble(bubble));
+      bubble.resizeObserver.observe(bubble);
+    }
   };
 
   const renderCaptionText = (session, text) => {
@@ -843,6 +956,7 @@
     const old = session.capBubble;
 
     const dismiss = (bubble) => {
+      bubble.resizeObserver?.disconnect();
       animateBubble(bubble, [
         { opacity: 1, transform: "translateY(0) scale(1)" },
         { opacity: 0, transform: "translateY(-6px) scale(0.98)" }
@@ -859,12 +973,14 @@
     // Rolling / growing captions update in place so they don't flicker.
     if (old && previous && (text.includes(previous) || previous.includes(text))) {
       setBubbleText(old, text);
+      drawBubble(old);
       return;
     }
     const bubble = document.createElement("div");
     bubble.className = "simpl-youtube-preview-cap";
     setBubbleText(bubble, text);
     caps.append(bubble);
+    watchBubble(bubble);
     session.capBubble = bubble;
     animateBubble(bubble, [
       { opacity: 0, transform: "translateY(10px) scale(0.96)" },
