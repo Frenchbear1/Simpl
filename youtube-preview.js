@@ -2435,7 +2435,54 @@
 
   const signedIn = () => Boolean(cookieValue("SAPISID") || cookieValue("__Secure-3PAPISID"));
 
+  const FETCH_EVENT = "simpl-youtube-fetch";
+  const FETCH_RESULT_EVENT = "simpl-youtube-fetch-result";
+
+  // Ask the page world to make the request with YouTube's own config.
+  const pageFetch = (session, path, body) => new Promise((resolve) => {
+    const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+    const finish = (value) => {
+      clearTimeout(timer);
+      document.removeEventListener(FETCH_RESULT_EVENT, listener, true);
+      resolve(value);
+    };
+    const listener = (event) => {
+      try {
+        const detail = JSON.parse(event.detail || "{}");
+        if (detail.id === id) {
+          finish(detail);
+        }
+      } catch {
+        // Ignore unrelated results.
+      }
+    };
+    const timer = setTimeout(() => finish({ error: "timed out" }), 15000);
+    document.addEventListener(FETCH_RESULT_EVENT, listener, true);
+    document.dispatchEvent(new CustomEvent(FETCH_EVENT, {
+      detail: JSON.stringify({ id, path, body })
+    }));
+  });
+
+  const describeFailure = (status, text) => {
+    let detail = "";
+    try {
+      const json = JSON.parse(text);
+      detail = json?.error?.message || json?.error?.status || "";
+    } catch {
+      detail = String(text || "").slice(0, 80);
+    }
+    return `HTTP ${status}${detail ? `: ${detail}` : ""}`;
+  };
+
   const innertube = async (session, path, body) => {
+    const viaPage = await pageFetch(session, path, body);
+    if (!viaPage.error) {
+      if (viaPage.status < 200 || viaPage.status >= 300) {
+        throw new Error(describeFailure(viaPage.status, viaPage.text));
+      }
+      return JSON.parse(viaPage.text || "{}");
+    }
+    session.saveNote = `page request: ${viaPage.error}`;
     const page = await getWatchPage(session);
     if (!page.apiKey || !page.context) {
       throw new Error("nocfg");
@@ -2459,7 +2506,7 @@
       signal: session.controller.signal
     });
     if (!response.ok) {
-      throw new Error("bad response");
+      throw new Error(describeFailure(response.status, await response.text().catch(() => "")));
     }
     return response.json();
   };
@@ -2534,10 +2581,7 @@
   };
 
   const loadPlaylists = async (session) => {
-    if (!signedIn()) {
-      showSaveMessage(session, "Sign in to YouTube to save videos to your playlists.");
-      return;
-    }
+    session.saveNote = "";
     session.saveLoading = true;
     showSaveMessage(session, "Loading your playlists…");
     try {
@@ -2550,14 +2594,23 @@
       }
       const playlists = parsePlaylists(json);
       if (!playlists.length) {
-        showSaveMessage(session, "No playlists were returned. Sign in to YouTube, then try again.", true);
+        const keys = Object.keys(json || {}).slice(0, 6).join(", ") || "empty";
+        showSaveMessage(
+          session,
+          `No playlists were returned${signedIn() ? "" : " (not signed in to YouTube?)"}. Response keys: ${keys}.`,
+          true
+        );
       } else {
         renderPlaylists(session, playlists);
         session.saveLoaded = true;
       }
-    } catch {
+    } catch (error) {
       if (!session.closing) {
-        showSaveMessage(session, "Couldn't load your playlists.", true);
+        showSaveMessage(
+          session,
+          `Couldn't load your playlists: ${error?.message || error}${session.saveNote ? ` (${session.saveNote})` : ""}.`,
+          true
+        );
       }
     } finally {
       session.saveLoading = false;
@@ -2590,9 +2643,9 @@
         throw new Error("rejected");
       }
       showToast(session, wanted ? "Saved" : "Removed");
-    } catch {
+    } catch (error) {
       box.checked = !wanted;
-      showToast(session, "Couldn't update that playlist");
+      showToast(session, `Couldn't update that playlist: ${error?.message || error}`);
     } finally {
       box.disabled = false;
     }

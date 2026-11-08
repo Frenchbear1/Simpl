@@ -602,6 +602,93 @@
     }));
   }, true);
 
+  // ---- Signed-in YouTube requests (save to playlist) ----------------------
+  // Made from the page's own context with its ytcfg key/context, the way
+  // YouTube's own code does, so the signed-in session is accepted.
+  const FETCH_EVENT = "simpl-youtube-fetch";
+  const FETCH_RESULT_EVENT = "simpl-youtube-fetch-result";
+  const FETCH_PATHS = /^(playlist\/get_add_to_playlist|browse\/edit_playlist)$/;
+
+  const readCookie = (name) => {
+    for (const part of document.cookie.split(";")) {
+      const [key, ...rest] = part.trim().split("=");
+      if (key === name) {
+        return rest.join("=");
+      }
+    }
+    return "";
+  };
+
+  const sha1Hex = async (text) => {
+    const bytes = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
+    return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  };
+
+  const authorizationHeader = async () => {
+    const stamp = Math.floor(Date.now() / 1000);
+    const parts = [];
+    for (const [cookie, scheme] of [
+      ["SAPISID", "SAPISIDHASH"],
+      ["__Secure-1PAPISID", "SAPISID1PHASH"],
+      ["__Secure-3PAPISID", "SAPISID3PHASH"]
+    ]) {
+      const value = readCookie(cookie);
+      if (value) {
+        parts.push(`${scheme} ${stamp}_${await sha1Hex(`${stamp} ${value} ${location.origin}`)}`);
+      }
+    }
+    return parts.join(" ");
+  };
+
+  document.addEventListener(FETCH_EVENT, async (event) => {
+    let request = null;
+    try {
+      request = JSON.parse(event.detail || "{}");
+    } catch {
+      return;
+    }
+    const reply = (payload) => document.dispatchEvent(new CustomEvent(FETCH_RESULT_EVENT, {
+      detail: JSON.stringify({ id: request.id, ...payload })
+    }));
+    try {
+      if (!FETCH_PATHS.test(request.path || "")) {
+        reply({ error: "request not allowed" });
+        return;
+      }
+      const config = window.ytcfg;
+      const key = config?.get?.("INNERTUBE_API_KEY");
+      const context = config?.get?.("INNERTUBE_CONTEXT");
+      if (!key || !context) {
+        reply({ error: "ytcfg is not available" });
+        return;
+      }
+      const headers = {
+        "content-type": "application/json",
+        "x-origin": location.origin,
+        "x-goog-authuser": String(config.get("SESSION_INDEX") ?? 0),
+        "x-youtube-client-name": String(config.get("INNERTUBE_CONTEXT_CLIENT_NAME") ?? 1),
+        "x-youtube-client-version": String(config.get("INNERTUBE_CONTEXT_CLIENT_VERSION") || context.client?.clientVersion || "")
+      };
+      const visitor = context.client?.visitorData || config.get("VISITOR_DATA");
+      if (visitor) {
+        headers["x-goog-visitor-id"] = visitor;
+      }
+      const auth = await authorizationHeader();
+      if (auth) {
+        headers.authorization = auth;
+      }
+      const response = await fetch(`/youtubei/v1/${request.path}?key=${encodeURIComponent(key)}&prettyPrint=false`, {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({ context, ...(request.body || {}) })
+      });
+      reply({ status: response.status, text: await response.text(), signedIn: Boolean(auth) });
+    } catch (error) {
+      reply({ error: String(error?.message || error) });
+    }
+  }, true);
+
   document.addEventListener(SKIP_EVENT, skipCurrentAd, true);
   document.addEventListener(STRICT_ADS_EVENT, (event) => {
     strictAdsEnabled = event.detail === true;
