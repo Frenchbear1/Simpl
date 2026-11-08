@@ -62,6 +62,8 @@
       glass: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.4"/></svg>',
       solid: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor"/></svg>',
       comments: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H8l-4.6 4.2A.6.6 0 0 1 2.4 21.8V5A2 2 0 0 1 4 3zm3 5v2h10V8H7zm0 4v2h7v-2H7z"/></svg>',
+      share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5.63 20.66 12 15 18.37V14h-1c-3.96 0-7.14 1-9.75 3.09 1.84-4.07 5.11-6.4 9.89-7.1l.86-.13V5.63M14 3v6C6.22 10.13 3.11 15.33 2 21c2.78-3.97 6.44-6 12-6v6l8-9-8-9z"/></svg>',
+      save: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h12v2H3V5zm0 4h12v2H3V9zm0 4h8v2H3v-2zm14-4h2v4h4v2h-4v4h-2v-4h-4v-2h4V9z"/></svg>',
       description: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm1 4v2h12V7H6zm0 4v2h12v-2H6zm0 4v2h8v-2H6z"/></svg>',
       back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
       external: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>',
@@ -295,6 +297,7 @@
           </div>
           <div class="simpl-youtube-preview-topbar">
             <button class="simpl-youtube-preview-back-video simpl-youtube-preview-icon-button" type="button" aria-label="Previous video" title="Back to previous video (b)" hidden>${icon("back")}</button>
+            <a class="simpl-youtube-preview-channel-avatar" href="#" aria-label="Open channel" title="Open channel" hidden><img alt="" draggable="false"></a>
             <div class="simpl-youtube-preview-heading">
               <span class="simpl-youtube-preview-title"></span>
               <span class="simpl-youtube-preview-channel"></span>
@@ -357,6 +360,14 @@
                 </button>
               </div>
               <div class="simpl-youtube-preview-control-group simpl-youtube-preview-right-controls">
+                <div class="simpl-youtube-preview-share-wrap">
+                  <button class="simpl-youtube-preview-share simpl-youtube-preview-icon-button" type="button" aria-label="Share" title="Share" aria-expanded="false">${icon("share")}</button>
+                  <div class="simpl-youtube-preview-share-menu simpl-youtube-preview-pop" role="menu" aria-label="Share" hidden></div>
+                </div>
+                <div class="simpl-youtube-preview-save-wrap">
+                  <button class="simpl-youtube-preview-save simpl-youtube-preview-icon-button" type="button" aria-label="Save to playlist" title="Save to playlist" aria-expanded="false">${icon("save")}</button>
+                  <div class="simpl-youtube-preview-save-menu simpl-youtube-preview-pop" role="dialog" aria-label="Save to playlist" hidden></div>
+                </div>
                 <button class="simpl-youtube-preview-cc simpl-youtube-preview-text-button" type="button" aria-label="Subtitles/closed captions" aria-pressed="false" title="Subtitles/closed captions (c)" disabled>CC</button>
                 <div class="simpl-youtube-preview-quality-wrap">
                   <span class="simpl-youtube-preview-quality-badge" aria-hidden="true"></span>
@@ -438,7 +449,8 @@
   };
 
   const menusOpen = (session) => (
-    !session.ui.settingsMenu.hidden || !session.ui.qualityMenu.hidden
+    !session.ui.settingsMenu.hidden || !session.ui.qualityMenu.hidden ||
+    !session.ui.shareMenu.hidden || !session.ui.saveMenu.hidden
   );
 
   const setControlsVisible = (session, visible) => {
@@ -517,6 +529,7 @@
     session.userSetMute = true;
     video.volume = Math.max(0, Math.min(1, value));
     video.muted = video.volume === 0;
+    session.userMuteIntent = video.muted;
     savePrefs({ volume: video.volume });
   };
 
@@ -796,7 +809,7 @@
   // only; this never seeks or reloads, and runs a few times at most.
   const applyAudio = (session) => {
     const { video } = session;
-    if (!video || session.userSetMute || !video.muted) {
+    if (!video || session.userMuteIntent || !video.muted) {
       return;
     }
     video.muted = false;
@@ -1225,7 +1238,7 @@
       if (Number.isFinite(carry.volume) && carry.volume > 0) {
         video.volume = Math.min(1, carry.volume);
       }
-      video.muted = carry.userSetMute ? carry.muted : false;
+      video.muted = Boolean(carry.userMuteIntent);
     }
     if (session.carry && SPEEDS.includes(session.carry.speed)) {
       video.playbackRate = session.carry.speed;
@@ -1303,20 +1316,30 @@
       }
     }, { signal: session.controller.signal });
 
+    // YouTube's preview player likes to start (and re-mute itself) muted while
+    // the video loads. For the first seconds, undo that unless the user asked
+    // for silence; element-level only, so playback is never restarted.
+    session.unmuteUntil = Date.now() + 8000;
     video.addEventListener("volumechange", () => {
       if (
-        !session.userSetMute &&
         video.muted &&
+        !session.userMuteIntent &&
+        Date.now() < session.unmuteUntil &&
+        session.unmuteAttempts < 40 &&
         activeSession === session &&
-        !session.closing &&
-        session.unmuteAttempts < 3
+        !session.closing
       ) {
         session.unmuteAttempts += 1;
         setTimeout(() => {
-          if (!session.userSetMute && activeSession === session && !session.closing) {
+          if (!session.userMuteIntent && activeSession === session && !session.closing) {
             video.muted = false;
           }
         }, 0);
+      }
+    }, { signal: session.controller.signal });
+    video.addEventListener("playing", () => {
+      if (video.muted && !session.userMuteIntent && Date.now() < session.unmuteUntil) {
+        video.muted = false;
       }
     }, { signal: session.controller.signal });
 
@@ -1331,7 +1354,7 @@
       }
     }, 700);
     video.play().then(() => {
-      if (!session.userSetMute) {
+      if (!session.userMuteIntent) {
         video.muted = false;
       }
     }).catch(() => {});
@@ -1482,6 +1505,10 @@
     session.ui.settingsButton.setAttribute("aria-expanded", "false");
     session.ui.qualityMenu.hidden = true;
     session.ui.qualityButton.setAttribute("aria-expanded", "false");
+    session.ui.shareMenu.hidden = true;
+    session.ui.shareButton.setAttribute("aria-expanded", "false");
+    session.ui.saveMenu.hidden = true;
+    session.ui.saveButton.setAttribute("aria-expanded", "false");
     setControlsVisible(session, true);
   };
 
@@ -2183,6 +2210,7 @@
       if (session.closing) {
         return;
       }
+      applyChannel(session, channelFromPage(page, session));
       const info = buildDescriptionInfo(page, session);
       session.chapters = buildChapters(page, info.description);
       renderDescription(session, info);
@@ -2253,6 +2281,323 @@
     setControlsVisible(session, true);
   };
 
+  // ---- Channel link ------------------------------------------------------
+
+  const channelFromPage = (page, session) => {
+    const owner = findKey(page?.data?.contents?.twoColumnWatchNextResults?.results, "videoOwnerRenderer");
+    const nav = owner?.title?.runs?.[0]?.navigationEndpoint?.browseEndpoint ||
+      owner?.navigationEndpoint?.browseEndpoint;
+    let path = nav?.canonicalBaseUrl || (nav?.browseId ? `/channel/${nav.browseId}` : "");
+    const channelId = page?.player?.videoDetails?.channelId;
+    if (!path && channelId) {
+      path = `/channel/${channelId}`;
+    }
+    const thumbs = owner?.thumbnail?.thumbnails || [];
+    let url = "";
+    try {
+      url = path ? new URL(path, location.origin).href : "";
+    } catch {
+      url = "";
+    }
+    return {
+      name: textOf(owner?.title) || page?.player?.videoDetails?.author || session.currentInfo?.channel || "",
+      url,
+      avatar: thumbs.length ? thumbs[thumbs.length - 1].url : ""
+    };
+  };
+
+  const applyChannel = (session, channel) => {
+    const { channelAvatar, channelLabel } = session.ui;
+    session.channelUrl = channel?.url || "";
+    if (channel?.name) {
+      channelLabel.textContent = channel.name;
+    }
+    channelLabel.toggleAttribute("data-link", Boolean(session.channelUrl));
+    const image = channelAvatar.querySelector("img");
+    if (session.channelUrl && channel.avatar) {
+      image.src = channel.avatar;
+      channelAvatar.href = session.channelUrl;
+      channelAvatar.hidden = false;
+    } else {
+      channelAvatar.hidden = true;
+    }
+  };
+
+  // ---- Share and save ----------------------------------------------------
+
+  const copyText = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const box = document.createElement("textarea");
+      box.value = text;
+      box.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+      document.documentElement.append(box);
+      box.select();
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch {
+        ok = false;
+      }
+      box.remove();
+      return ok;
+    }
+  };
+
+  const shareLink = (session, timed) => {
+    const id = videoIdFromUrl(session.url);
+    const link = new URL("https://www.youtube.com/watch");
+    link.searchParams.set("v", id);
+    if (timed && session.video) {
+      link.searchParams.set("t", `${Math.floor(session.video.currentTime)}s`);
+    }
+    return link.href;
+  };
+
+  const renderShareMenu = (session) => {
+    const { shareMenu } = session.ui;
+    shareMenu.replaceChildren();
+    const entries = [
+      ["copy", "Copy link"],
+      ["copy-time", `Copy link at ${formatTime(session.video?.currentTime || 0)}`]
+    ];
+    if (typeof navigator.share === "function") {
+      entries.push(["system", "Share…"]);
+    }
+    for (const [action, label] of entries) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      button.dataset.action = action;
+      button.textContent = label;
+      shareMenu.append(button);
+    }
+  };
+
+  const toggleShareMenu = (session) => {
+    const open = session.ui.shareMenu.hidden;
+    closeMenus(session);
+    if (open) {
+      renderShareMenu(session);
+    }
+    session.ui.shareMenu.hidden = !open;
+    session.ui.shareButton.setAttribute("aria-expanded", String(open));
+    setControlsVisible(session, true);
+  };
+
+  const runShareAction = async (session, action) => {
+    closeMenus(session);
+    const url = shareLink(session, action === "copy-time");
+    if (action === "system") {
+      try {
+        await navigator.share({ title: session.currentInfo?.title || "", url });
+      } catch {
+        // Cancelled by the user.
+      }
+      return;
+    }
+    showToast(session, (await copyText(url)) ? "Link copied" : "Couldn't copy the link");
+  };
+
+  // YouTube's own endpoints need the signed-in user's SAPISID hash.
+  const cookieValue = (name) => {
+    for (const part of document.cookie.split(";")) {
+      const [key, ...rest] = part.trim().split("=");
+      if (key === name) {
+        return rest.join("=");
+      }
+    }
+    return "";
+  };
+
+  const sha1Hex = async (text) => {
+    const bytes = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
+    return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  };
+
+  const authHeader = async () => {
+    const stamp = Math.floor(Date.now() / 1000);
+    const parts = [];
+    for (const [cookie, scheme] of [
+      ["SAPISID", "SAPISIDHASH"],
+      ["__Secure-1PAPISID", "SAPISID1PHASH"],
+      ["__Secure-3PAPISID", "SAPISID3PHASH"]
+    ]) {
+      const value = cookieValue(cookie);
+      if (value) {
+        parts.push(`${scheme} ${stamp}_${await sha1Hex(`${stamp} ${value} ${location.origin}`)}`);
+      }
+    }
+    return parts.join(" ");
+  };
+
+  const signedIn = () => Boolean(cookieValue("SAPISID") || cookieValue("__Secure-3PAPISID"));
+
+  const innertube = async (session, path, body) => {
+    const page = await getWatchPage(session);
+    if (!page.apiKey || !page.context) {
+      throw new Error("nocfg");
+    }
+    const headers = {
+      "content-type": "application/json",
+      "x-origin": location.origin,
+      "x-goog-authuser": "0",
+      "x-youtube-client-name": "1",
+      "x-youtube-client-version": page.context.client?.clientVersion || ""
+    };
+    const auth = await authHeader();
+    if (auth) {
+      headers.authorization = auth;
+    }
+    const response = await fetch(`/youtubei/v1/${path}?key=${encodeURIComponent(page.apiKey)}&prettyPrint=false`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers,
+      body: JSON.stringify({ context: page.context, ...body }),
+      signal: session.controller.signal
+    });
+    if (!response.ok) {
+      throw new Error("bad response");
+    }
+    return response.json();
+  };
+
+  const showSaveMessage = (session, text, retry = false) => {
+    const { saveMenu } = session.ui;
+    saveMenu.replaceChildren();
+    const note = document.createElement("p");
+    note.textContent = text;
+    saveMenu.append(note);
+    if (retry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.saveRetry = "true";
+      button.textContent = "Try again";
+      saveMenu.append(button);
+    }
+  };
+
+  const renderPlaylists = (session, playlists) => {
+    const { saveMenu } = session.ui;
+    saveMenu.replaceChildren();
+    const head = document.createElement("div");
+    head.className = "simpl-youtube-preview-pop-head";
+    head.textContent = "Save to…";
+    saveMenu.append(head);
+    const list = document.createElement("div");
+    list.className = "simpl-youtube-preview-save-list";
+    for (const playlist of playlists) {
+      const row = document.createElement("label");
+      row.className = "simpl-youtube-preview-save-row";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = playlist.checked;
+      box.dataset.playlistId = playlist.id;
+      const title = document.createElement("span");
+      title.textContent = playlist.title;
+      row.append(box, title);
+      if (playlist.privacy) {
+        const privacy = document.createElement("em");
+        privacy.textContent = playlist.privacy;
+        row.append(privacy);
+      }
+      list.append(row);
+    }
+    saveMenu.append(list);
+  };
+
+  const parsePlaylists = (json) => {
+    const found = [];
+    const walk = (node, depth) => {
+      if (!node || typeof node !== "object" || depth > 12) {
+        return;
+      }
+      if (node.playlistAddToOptionRenderer) {
+        const item = node.playlistAddToOptionRenderer;
+        if (item.playlistId) {
+          found.push({
+            id: item.playlistId,
+            title: textOf(item.title),
+            checked: item.containsSelectedVideos === "ALL",
+            privacy: String(item.privacy || "").replace(/^./, (c) => c) &&
+              ({ PRIVATE: "Private", UNLISTED: "Unlisted" }[item.privacy] || "")
+          });
+        }
+        return;
+      }
+      Object.values(node).forEach((value) => walk(value, depth + 1));
+    };
+    walk(json, 0);
+    return found;
+  };
+
+  const loadPlaylists = async (session) => {
+    if (!signedIn()) {
+      showSaveMessage(session, "Sign in to YouTube to save videos to your playlists.");
+      return;
+    }
+    session.saveLoading = true;
+    showSaveMessage(session, "Loading your playlists…");
+    try {
+      const json = await innertube(session, "playlist/get_add_to_playlist", {
+        videoIds: [videoIdFromUrl(session.url)],
+        excludeWatchLater: false
+      });
+      if (session.closing) {
+        return;
+      }
+      const playlists = parsePlaylists(json);
+      if (!playlists.length) {
+        showSaveMessage(session, "No playlists were returned. Sign in to YouTube, then try again.", true);
+      } else {
+        renderPlaylists(session, playlists);
+        session.saveLoaded = true;
+      }
+    } catch {
+      if (!session.closing) {
+        showSaveMessage(session, "Couldn't load your playlists.", true);
+      }
+    } finally {
+      session.saveLoading = false;
+    }
+  };
+
+  const toggleSaveMenu = (session) => {
+    const open = session.ui.saveMenu.hidden;
+    closeMenus(session);
+    session.ui.saveMenu.hidden = !open;
+    session.ui.saveButton.setAttribute("aria-expanded", String(open));
+    if (open && !session.saveLoaded && !session.saveLoading) {
+      loadPlaylists(session);
+    }
+    setControlsVisible(session, true);
+  };
+
+  const savePlaylistChange = async (session, box) => {
+    const id = videoIdFromUrl(session.url);
+    const wanted = box.checked;
+    box.disabled = true;
+    try {
+      const json = await innertube(session, "browse/edit_playlist", {
+        playlistId: box.dataset.playlistId,
+        actions: [wanted
+          ? { addedVideoId: id, action: "ACTION_ADD_VIDEO" }
+          : { removedVideoId: id, action: "ACTION_REMOVE_VIDEO_BY_VIDEO_ID" }]
+      });
+      if (json?.status && json.status !== "STATUS_SUCCEEDED") {
+        throw new Error("rejected");
+      }
+      showToast(session, wanted ? "Saved" : "Removed");
+    } catch {
+      box.checked = !wanted;
+      showToast(session, "Couldn't update that playlist");
+    } finally {
+      box.disabled = false;
+    }
+  };
+
   // ---- Switching videos without leaving the viewer ----------------------
   // The moved preview player is a real YouTube player, so it can be told to
   // load another video. If YouTube does not accept it in time, fall back to
@@ -2267,6 +2612,13 @@
     session.recsLoading = false;
     session.descLoaded = false;
     session.descLoading = false;
+    // A freshly loaded video can come up muted; keep sound on (in both
+    // directions of Back/Recommended) unless the user asked for silence.
+    session.unmuteUntil = Date.now() + 8000;
+    session.unmuteAttempts = 0;
+    if (!session.userMuteIntent && session.video) {
+      session.video.muted = false;
+    }
     session.captionsOn = false;
     session.chapters = [];
     session.chapterIndex = -2;
@@ -2278,6 +2630,11 @@
     session.commentsNext = "";
     session.commentsTotal = "";
     session.descHeading = null;
+    session.channelUrl = "";
+    session.ui.channelAvatar.hidden = true;
+    session.ui.channelLabel.removeAttribute("data-link");
+    session.saveLoaded = false;
+    session.ui.saveMenu.replaceChildren();
     session.panelMode = "desc";
     session.ui.commentsBody.replaceChildren();
     session.ui.descBody.hidden = false;
@@ -2359,6 +2716,7 @@
             volume: session.video.volume,
             muted: session.video.muted,
             userSetMute: session.userSetMute,
+            userMuteIntent: session.userMuteIntent,
             speed: session.video.playbackRate,
             qualityChoice: session.qualityChoice,
             captions: session.ui.cc.getAttribute("aria-pressed") === "true"
@@ -2673,6 +3031,11 @@
       qualityMenu: $("quality-menu"),
       qualityBadge: $("quality-badge"),
       descToggle: $("desc-toggle"),
+      channelAvatar: $("channel-avatar"),
+      shareButton: $("share"),
+      shareMenu: $("share-menu"),
+      saveButton: $("save"),
+      saveMenu: $("save-menu"),
       commentsToggle: $("comments-toggle"),
       commentsBody: $("comments-body"),
       chapterMarks: $("chapter-marks"),
@@ -2727,6 +3090,8 @@
       carryCaptions: Boolean(carry?.captions),
       captionsOn: false,
       userSetMute: Boolean(carry?.userSetMute),
+      userMuteIntent: Boolean(carry?.userMuteIntent),
+      unmuteUntil: 0,
       qualityLevels: [],
       qualityCurrent: "",
       recsOpen: false,
@@ -2744,6 +3109,9 @@
       commentsNext: "",
       commentsTotal: "",
       descHeading: null,
+      channelUrl: "",
+      saveLoaded: false,
+      saveLoading: false,
       recsLoaded: false,
       qualityApplied: false,
       captionsTouched: false,
@@ -2822,6 +3190,7 @@
           session.video.volume = Number.isFinite(prefs.volume) && prefs.volume > 0 ? prefs.volume : 1;
         }
         session.video.muted = !session.video.muted;
+        session.userMuteIntent = session.video.muted;
       }
     });
     on(ui.volume, "input", () => setVolume(session, Number(ui.volume.value)));
@@ -2867,6 +3236,32 @@
     });
     applyDescriptionMode(session);
     on(ui.descToggle, "click", () => toggleDescription(session));
+    const openChannel = (event) => {
+      event.preventDefault();
+      if (session.channelUrl) {
+        closePreview(session, session.channelUrl);
+      }
+    };
+    on(ui.channelAvatar, "click", openChannel);
+    on(ui.channelLabel, "click", openChannel);
+    on(ui.shareButton, "click", () => toggleShareMenu(session));
+    on(ui.shareMenu, "click", (event) => {
+      const option = event.target.closest("button[data-action]");
+      if (option) {
+        runShareAction(session, option.dataset.action);
+      }
+    });
+    on(ui.saveButton, "click", () => toggleSaveMenu(session));
+    on(ui.saveMenu, "change", (event) => {
+      if (event.target.matches?.("input[data-playlist-id]")) {
+        savePlaylistChange(session, event.target);
+      }
+    });
+    on(ui.saveMenu, "click", (event) => {
+      if (event.target.closest("button[data-save-retry]")) {
+        loadPlaylists(session);
+      }
+    });
     on(ui.commentsToggle, "click", () => toggleDescription(session, undefined, "comments"));
     on(ui.commentsBody, "click", (event) => {
       const stamp = event.target.closest("button.simpl-youtube-preview-stamp");
@@ -2971,7 +3366,7 @@
     on(ui.media, "click", (event) => {
       if (
         menusOpen(session) &&
-        !event.target.closest(".simpl-youtube-preview-settings-wrap, .simpl-youtube-preview-quality-wrap")
+        !event.target.closest(".simpl-youtube-preview-settings-wrap, .simpl-youtube-preview-quality-wrap, .simpl-youtube-preview-share-wrap, .simpl-youtube-preview-save-wrap")
       ) {
         event.preventDefault();
         event.stopPropagation();
@@ -3102,6 +3497,7 @@
     } else if (key === "m") {
       session.userSetMute = true;
       session.video.muted = !session.video.muted;
+      session.userMuteIntent = session.video.muted;
     } else if (key === "c") {
       toggleCaptions(session);
     } else if (key === "q") {
