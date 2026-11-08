@@ -61,6 +61,7 @@
       chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.4 15.4 4.6-4.6 4.6 4.6L18 14l-6-6-6 6z"/></svg>',
       glass: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.4"/></svg>',
       solid: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor"/></svg>',
+      comments: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H8l-4.6 4.2A.6.6 0 0 1 2.4 21.8V5A2 2 0 0 1 4 3zm3 5v2h10V8H7zm0 4v2h7v-2H7z"/></svg>',
       description: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm1 4v2h12V7H6zm0 4v2h12v-2H6zm0 4v2h8v-2H6z"/></svg>',
       back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
       external: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>',
@@ -314,6 +315,7 @@
               </div>
             </div>
             <div class="simpl-youtube-preview-desc-body" tabindex="0"></div>
+            <div class="simpl-youtube-preview-desc-body simpl-youtube-preview-comments-body" tabindex="0" hidden></div>
           </div>
           <div class="simpl-youtube-preview-toast" aria-live="polite"></div>
           <div class="simpl-youtube-preview-controls">
@@ -322,6 +324,7 @@
             </div>
             <div class="simpl-youtube-preview-timeline-wrap">
               <div class="simpl-youtube-preview-buffered"></div>
+              <div class="simpl-youtube-preview-chapter-marks" aria-hidden="true"></div>
               <input class="simpl-youtube-preview-timeline" type="range" min="0" max="1000" value="0" aria-label="Video position" disabled>
               <div class="simpl-youtube-preview-scrub" hidden>
                 <div class="simpl-youtube-preview-scrub-thumb" hidden></div>
@@ -345,6 +348,8 @@
                 </div>
                 <span class="simpl-youtube-preview-time">0:00 / 0:00</span>
                 <button class="simpl-youtube-preview-desc-toggle simpl-youtube-preview-icon-button" type="button" aria-expanded="false" aria-label="Description" title="Description (d)">${icon("description")}</button>
+                <button class="simpl-youtube-preview-comments-toggle simpl-youtube-preview-icon-button" type="button" aria-expanded="false" aria-label="Comments" title="Comments (n)">${icon("comments")}</button>
+                <span class="simpl-youtube-preview-chapter-name"></span>
               </div>
               <div class="simpl-youtube-preview-center">
                 <button class="simpl-youtube-preview-recs-toggle" type="button" aria-expanded="false" title="Recommended videos (r)">
@@ -712,6 +717,12 @@
     if (!auto) {
       session.captionsTouched = true;
     }
+    // The viewer only draws captions after they were asked for, so YouTube's
+    // own default-on captions can never flash up while the video opens.
+    session.captionsOn = Boolean(wanted);
+    if (!wanted) {
+      renderCaptionText(session, "");
+    }
     // Only the language is remembered; captions always start off.
     if (track) {
       savePrefs({ captionKey: track.key, captionLanguage: track.languageCode });
@@ -958,7 +969,8 @@
     }
   };
 
-  const renderCaptionText = (session, text) => {
+  const renderCaptionText = (session, requested) => {
+    const text = session.captionsOn ? requested : "";
     if (session.closing || text === session.capText) {
       return;
     }
@@ -1146,6 +1158,7 @@
       ui.time.textContent = `${formatTime(video.currentTime)} / ${formatTime(duration)}`;
     }
     updateBuffered(session);
+    updateChapterLabel(session);
     if (SPEEDS.includes(video.playbackRate)) {
       ui.speed.value = String(video.playbackRate);
     }
@@ -1469,8 +1482,8 @@
   // viewer fetches that page (same origin, with the user's own cookies) and
   // reads the related videos out of its embedded ytInitialData.
 
-  const extractJsonVariable = (html, name) => {
-    const match = new RegExp(`${name}["']?\\]?\\s*=\\s*\\{`).exec(html);
+  const extractJsonVariable = (html, name, pattern = null) => {
+    const match = (pattern || new RegExp(`${name}["']?\\]?\\s*=\\s*\\{`)).exec(html);
     const start = match ? match.index + match[0].length - 1 : -1;
     if (start < 0) {
       return null;
@@ -1518,7 +1531,9 @@
         const html = await response.text();
         return {
           data: extractJsonVariable(html, "ytInitialData"),
-          player: extractJsonVariable(html, "ytInitialPlayerResponse")
+          player: extractJsonVariable(html, "ytInitialPlayerResponse"),
+          apiKey: /"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/.exec(html)?.[1] || "",
+          context: extractJsonVariable(html, "", /"INNERTUBE_CONTEXT"\s*:\s*\{/)
         };
       });
       session.watchPage.catch(() => {
@@ -1799,14 +1814,326 @@
 
   const renderDescription = (session, info) => {
     const { descTitle, descMeta, descBody } = session.ui;
-    descTitle.textContent = info.title || "";
-    descMeta.textContent = info.meta || "";
+    session.descHeading = { title: info.title || "", meta: info.meta || "" };
+    if (session.panelMode !== "comments") {
+      descTitle.textContent = session.descHeading.title;
+      descMeta.textContent = session.descHeading.meta;
+    }
     descBody.replaceChildren();
+    if (session.chapters?.length) {
+      const list = document.createElement("div");
+      list.className = "simpl-youtube-preview-chapter-list";
+      session.chapters.forEach((chapter, index) => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "simpl-youtube-preview-stamp simpl-youtube-preview-chapter-row";
+        row.dataset.seconds = String(chapter.start);
+        row.dataset.index = String(index);
+        const time = document.createElement("span");
+        time.textContent = formatTime(chapter.start);
+        const title = document.createElement("span");
+        title.textContent = chapter.title;
+        row.append(time, title);
+        list.append(row);
+      });
+      descBody.append(list);
+    }
     if (!info.description) {
-      descBody.textContent = "This video has no description.";
+      descBody.append("This video has no description.");
       return;
     }
-    linkifyInto(descBody, info.description);
+    const text = document.createElement("div");
+    linkifyInto(text, info.description);
+    descBody.append(text);
+  };
+
+  // ---- Chapters ----------------------------------------------------------
+  // YouTube's own chapter list when the page has one, otherwise timestamps in
+  // the description (first at 0:00, at least three, ascending).
+
+  const STAMP = "(?:\\d{1,2}:)?[0-5]?\\d:[0-5]\\d";
+  const CHAPTER_START = new RegExp(`^[\\s\\-–—•·*▪►▶>]*[\\[(]?(${STAMP})[\\])]?\\s*[-–—:|.)]*\\s*(\\S.*)$`);
+  const CHAPTER_END = new RegExp(`^(\\S.*?)\\s*[-–—:|]?\\s*[\\[(]?(${STAMP})[\\])]?$`);
+
+  const parseChapters = (text) => {
+    const found = [];
+    for (const raw of String(text || "").split("\n")) {
+      const line = raw.trim();
+      let start = -1;
+      let title = "";
+      const lead = CHAPTER_START.exec(line);
+      if (lead) {
+        start = parseTimestamp(lead[1]);
+        title = lead[2];
+      } else {
+        const tail = CHAPTER_END.exec(line);
+        if (tail) {
+          start = parseTimestamp(tail[2]);
+          title = tail[1];
+        }
+      }
+      title = title.replace(/^[-–—:|.)\s]+|\s+$/g, "");
+      if (start >= 0 && title) {
+        found.push({ start, title: title.slice(0, 120) });
+      }
+    }
+    if (found.length < 3 || found[0].start !== 0) {
+      return [];
+    }
+    for (let i = 1; i < found.length; i += 1) {
+      if (found[i].start <= found[i - 1].start) {
+        return [];
+      }
+    }
+    return found.slice(0, 100);
+  };
+
+  const chaptersFromData = (data) => {
+    let list = null;
+    const walk = (node, depth) => {
+      if (list || !node || typeof node !== "object" || depth > 16) {
+        return;
+      }
+      if (Array.isArray(node.chapters) && node.chapters[0]?.chapterRenderer) {
+        list = node.chapters;
+        return;
+      }
+      for (const value of Object.values(node)) {
+        walk(value, depth + 1);
+      }
+    };
+    walk(data, 0);
+    return (list || [])
+      .map((item) => item.chapterRenderer)
+      .filter(Boolean)
+      .map((item) => ({
+        start: Math.round((item.timeRangeStartMillis || 0) / 1000),
+        title: textOf(item.title)
+      }))
+      .filter((item) => item.title);
+  };
+
+  const buildChapters = (page, description) => {
+    const own = chaptersFromData(page?.data);
+    return own.length >= 2 ? own : parseChapters(description);
+  };
+
+  const chapterAt = (session, seconds) => {
+    let current = -1;
+    (session.chapters || []).forEach((chapter, index) => {
+      if (chapter.start <= seconds + 0.25) {
+        current = index;
+      }
+    });
+    return current;
+  };
+
+  const renderChapters = (session) => {
+    const { video, ui } = session;
+    const chapters = session.chapters || [];
+    const duration = video && Number.isFinite(video.duration) ? video.duration : 0;
+    ui.chapterMarks.replaceChildren();
+    session.chapterIndex = -2;
+    session.chaptersDrawn = duration;
+    if (!chapters.length || !duration) {
+      ui.chapterName.textContent = "";
+      return;
+    }
+    for (let i = 1; i < chapters.length; i += 1) {
+      if (chapters[i].start < duration) {
+        const tick = document.createElement("span");
+        tick.style.left = `${(chapters[i].start / duration) * 100}%`;
+        ui.chapterMarks.append(tick);
+      }
+    }
+  };
+
+  const updateChapterLabel = (session) => {
+    const { video, ui } = session;
+    const chapters = session.chapters || [];
+    if (!video || !chapters.length) {
+      return;
+    }
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    if (duration && session.chaptersDrawn !== duration) {
+      renderChapters(session);
+    }
+    const index = chapterAt(session, video.currentTime);
+    if (index === session.chapterIndex) {
+      return;
+    }
+    session.chapterIndex = index;
+    ui.chapterName.textContent = index >= 0 ? chapters[index].title : "";
+    ui.descBody.querySelectorAll(".simpl-youtube-preview-chapter-row").forEach((row) => {
+      row.toggleAttribute("data-current", Number(row.dataset.index) === index);
+    });
+  };
+
+  // ---- Comments ----------------------------------------------------------
+
+  const commentsContinuation = (data) => {
+    const sections = data?.contents?.twoColumnWatchNextResults?.results?.results?.contents || [];
+    for (const section of sections) {
+      const renderer = section.itemSectionRenderer;
+      if (!renderer) {
+        continue;
+      }
+      const item = (renderer.contents || []).find((entry) => entry.continuationItemRenderer);
+      const token = item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
+      if (token && (renderer.sectionIdentifier === "comment-item-section" || /comment/i.test(renderer.targetId || ""))) {
+        return token;
+      }
+    }
+    return "";
+  };
+
+  const parseComments = (json) => {
+    const entities = new Map();
+    for (const mutation of json?.frameworkUpdates?.entityBatchUpdate?.mutations || []) {
+      const payload = mutation.payload?.commentEntityPayload;
+      if (payload?.key) {
+        entities.set(payload.key, payload);
+      }
+    }
+    const comments = [];
+    let next = "";
+    let total = "";
+    for (const command of json?.onResponseReceivedEndpoints || []) {
+      const list = command.reloadContinuationItemsCommand?.continuationItems ||
+        command.appendContinuationItemsAction?.continuationItems || [];
+      for (const item of list) {
+        const thread = item.commentThreadRenderer;
+        if (thread) {
+          const key = thread.commentViewModel?.commentViewModel?.commentKey;
+          const entity = key ? entities.get(key) : null;
+          const legacy = thread.comment?.commentRenderer;
+          if (entity) {
+            comments.push({
+              author: entity.author?.displayName || "",
+              text: entity.properties?.content?.content || "",
+              time: entity.properties?.publishedTime || "",
+              likes: entity.toolbar?.likeCountNotliked || entity.toolbar?.likeCountLiked || ""
+            });
+          } else if (legacy) {
+            comments.push({
+              author: textOf(legacy.authorText),
+              text: textOf(legacy.contentText),
+              time: textOf(legacy.publishedTimeText),
+              likes: textOf(legacy.voteCount)
+            });
+          }
+        } else if (item.continuationItemRenderer) {
+          next = item.continuationItemRenderer.continuationEndpoint?.continuationCommand?.token || next;
+        } else if (item.commentsHeaderRenderer) {
+          total = textOf(item.commentsHeaderRenderer.countText);
+        }
+      }
+    }
+    return { comments: comments.filter((item) => item.text), next, total };
+  };
+
+  const appendComments = (session, comments) => {
+    const { commentsBody } = session.ui;
+    for (const comment of comments) {
+      const box = document.createElement("div");
+      box.className = "simpl-youtube-preview-comment";
+      const head = document.createElement("div");
+      head.className = "simpl-youtube-preview-comment-head";
+      const author = document.createElement("strong");
+      author.textContent = comment.author;
+      head.append(author);
+      for (const extra of [comment.time, comment.likes ? `♥ ${comment.likes}` : ""]) {
+        if (extra) {
+          const span = document.createElement("span");
+          span.textContent = extra;
+          head.append(span);
+        }
+      }
+      const body = document.createElement("div");
+      body.className = "simpl-youtube-preview-comment-text";
+      linkifyInto(body, comment.text.replace(/\r\n?/g, "\n"));
+      box.append(head, body);
+      commentsBody.append(box);
+    }
+  };
+
+  const showCommentsMessage = (session, text, retry = false) => {
+    const { commentsBody } = session.ui;
+    commentsBody.querySelector(".simpl-youtube-preview-comments-note")?.remove();
+    const note = document.createElement("div");
+    note.className = "simpl-youtube-preview-comments-note";
+    note.append(text);
+    if (retry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "simpl-youtube-preview-stamp";
+      button.dataset.commentsRetry = "true";
+      button.textContent = retry === "more" ? "Show more comments" : "Try again";
+      note.append(" ", button);
+    }
+    commentsBody.append(note);
+  };
+
+  const loadComments = async (session, more = false) => {
+    if (session.commentsLoading || (session.commentsLoaded && !more)) {
+      return;
+    }
+    session.commentsLoading = true;
+    const { commentsBody } = session.ui;
+    if (!more) {
+      commentsBody.replaceChildren();
+    }
+    showCommentsMessage(session, "Loading comments…");
+    try {
+      const page = await getWatchPage(session);
+      const token = more ? session.commentsNext : commentsContinuation(page.data);
+      if (!token) {
+        throw new Error(page.data ? "off" : "nodata");
+      }
+      if (!page.apiKey || !page.context) {
+        throw new Error("nocfg");
+      }
+      const response = await fetch(`/youtubei/v1/next?key=${encodeURIComponent(page.apiKey)}&prettyPrint=false`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ context: page.context, continuation: token }),
+        signal: session.controller.signal
+      });
+      if (!response.ok) {
+        throw new Error("bad response");
+      }
+      const result = parseComments(await response.json());
+      if (session.closing) {
+        return;
+      }
+      commentsBody.querySelector(".simpl-youtube-preview-comments-note")?.remove();
+      if (!more && result.total) {
+        session.commentsTotal = result.total;
+        if (session.panelMode === "comments") {
+          session.ui.descMeta.textContent = `${result.total} comments`;
+        }
+      }
+      appendComments(session, result.comments);
+      session.commentsLoaded = true;
+      session.commentsNext = result.next;
+      if (result.comments.length === 0 && !more) {
+        showCommentsMessage(session, "No comments to show.");
+      } else if (result.next) {
+        showCommentsMessage(session, "", "more");
+      }
+    } catch (error) {
+      if (!session.closing) {
+        commentsBody.querySelector(".simpl-youtube-preview-comments-note")?.remove();
+        showCommentsMessage(
+          session,
+          error?.message === "off" ? "Comments are turned off or unavailable for this video." : "Couldn't load comments.",
+          error?.message === "off" ? false : true
+        );
+      }
+    } finally {
+      session.commentsLoading = false;
+    }
   };
 
   const loadDescription = async (session) => {
@@ -1820,7 +2147,10 @@
       if (session.closing) {
         return;
       }
-      renderDescription(session, buildDescriptionInfo(page, session));
+      const info = buildDescriptionInfo(page, session);
+      session.chapters = buildChapters(page, info.description);
+      renderDescription(session, info);
+      renderChapters(session);
       session.descLoaded = true;
     } catch {
       if (!session.closing) {
@@ -1846,19 +2176,43 @@
     descSolid.setAttribute("aria-pressed", String(solid));
   };
 
-  const toggleDescription = (session, force) => {
-    const open = typeof force === "boolean" ? force : !session.descOpen;
-    if (open === session.descOpen) {
-      return;
+  // One popup serves both the description and the comments; the two icons
+  // choose which one it shows.
+  const toggleDescription = (session, force, mode = "desc") => {
+    const same = session.descOpen && session.panelMode === mode;
+    const open = typeof force === "boolean" ? force : !same;
+    if (!open) {
+      if (!session.descOpen) {
+        return;
+      }
+      session.descOpen = false;
+    } else {
+      session.descOpen = true;
+      session.panelMode = mode;
     }
-    session.descOpen = open;
-    session.root.dataset.desc = open ? "open" : "closed";
-    session.ui.desc.setAttribute("aria-hidden", String(!open));
-    session.ui.descToggle.setAttribute("aria-expanded", String(open));
+    const comments = session.panelMode === "comments";
+    const { ui } = session;
+    session.root.dataset.desc = session.descOpen ? "open" : "closed";
+    ui.desc.setAttribute("aria-hidden", String(!session.descOpen));
+    ui.descToggle.setAttribute("aria-expanded", String(session.descOpen && !comments));
+    ui.commentsToggle.setAttribute("aria-expanded", String(session.descOpen && comments));
     if (open) {
+      ui.descBody.hidden = comments;
+      ui.commentsBody.hidden = !comments;
+      if (comments) {
+        ui.descTitle.textContent = "Comments";
+        ui.descMeta.textContent = session.commentsTotal ? `${session.commentsTotal} comments` : "";
+      } else {
+        ui.descTitle.textContent = session.descHeading?.title || session.currentInfo?.title || "";
+        ui.descMeta.textContent = session.descHeading?.meta || "";
+      }
       closeMenus(session);
       toggleRecommended(session, false);
-      loadDescription(session);
+      if (comments) {
+        loadComments(session);
+      } else {
+        loadDescription(session);
+      }
     }
     setControlsVisible(session, true);
   };
@@ -1877,6 +2231,21 @@
     session.recsLoading = false;
     session.descLoaded = false;
     session.descLoading = false;
+    session.captionsOn = false;
+    session.chapters = [];
+    session.chapterIndex = -2;
+    session.chaptersDrawn = 0;
+    session.ui.chapterMarks.replaceChildren();
+    session.ui.chapterName.textContent = "";
+    session.commentsLoaded = false;
+    session.commentsLoading = false;
+    session.commentsNext = "";
+    session.commentsTotal = "";
+    session.descHeading = null;
+    session.panelMode = "desc";
+    session.ui.commentsBody.replaceChildren();
+    session.ui.descBody.hidden = false;
+    session.ui.commentsBody.hidden = true;
     session.storyboard = null;
     session.storyboardPromise = null;
     session.sheets = new Map();
@@ -2169,7 +2538,10 @@
       return;
     }
     const seconds = duration * ratio;
-    scrubTime.textContent = formatTime(seconds);
+    const chapterIndex = chapterAt(session, seconds);
+    scrubTime.textContent = chapterIndex >= 0
+      ? `${session.chapters[chapterIndex].title} · ${formatTime(seconds)}`
+      : formatTime(seconds);
     scrub.hidden = false;
     const board = session.storyboard;
     scrubThumb.hidden = !board;
@@ -2262,6 +2634,10 @@
       qualityMenu: $("quality-menu"),
       qualityBadge: $("quality-badge"),
       descToggle: $("desc-toggle"),
+      commentsToggle: $("comments-toggle"),
+      commentsBody: $("comments-body"),
+      chapterMarks: $("chapter-marks"),
+      chapterName: $("chapter-name"),
       backVideo: $("back-video"),
       poster: $("poster"),
       heading: $("title"),
@@ -2310,6 +2686,7 @@
         : prefs.quality === "auto" ? "" : prefs.quality || DEFAULT_QUALITY,
       carry,
       carryCaptions: Boolean(carry?.captions),
+      captionsOn: false,
       userSetMute: Boolean(carry?.userSetMute),
       qualityLevels: [],
       qualityCurrent: "",
@@ -2319,6 +2696,15 @@
       switching: false,
       currentInfo: info,
       descLoaded: false,
+      panelMode: "desc",
+      chapters: [],
+      chapterIndex: -2,
+      chaptersDrawn: 0,
+      commentsLoaded: false,
+      commentsLoading: false,
+      commentsNext: "",
+      commentsTotal: "",
+      descHeading: null,
       recsLoaded: false,
       qualityApplied: false,
       captionsTouched: false,
@@ -2440,6 +2826,20 @@
     });
     applyDescriptionMode(session);
     on(ui.descToggle, "click", () => toggleDescription(session));
+    on(ui.commentsToggle, "click", () => toggleDescription(session, undefined, "comments"));
+    on(ui.commentsBody, "click", (event) => {
+      const stamp = event.target.closest("button.simpl-youtube-preview-stamp");
+      if (!stamp) {
+        return;
+      }
+      if (stamp.dataset.commentsRetry) {
+        const more = Boolean(session.commentsLoaded);
+        loadComments(session, more);
+        return;
+      }
+      seekTo(session, Number(stamp.dataset.seconds));
+      showToast(session, formatTime(Number(stamp.dataset.seconds)));
+    });
     on(ui.backVideo, "click", () => previousVideo(session));
     on(ui.descGlass, "click", () => {
       savePrefs({ descSolid: false });
@@ -2464,10 +2864,12 @@
       showToast(session, formatTime(Number(stamp.dataset.seconds)));
     });
     on(ui.recsToggle, "click", () => toggleRecommended(session));
-    on(ui.recsTrack, "wheel", (event) => {
+    // Wheel down scrolls the row right, wheel up scrolls it left.
+    on(ui.recs, "wheel", (event) => {
       if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
         event.preventDefault();
-        ui.recsTrack.scrollLeft += event.deltaY;
+        const unit = event.deltaMode === 1 ? 32 : event.deltaMode === 2 ? ui.recsTrack.clientWidth : 1;
+        ui.recsTrack.scrollLeft += event.deltaY * unit;
       }
     }, { passive: false });
     on(ui.recsTrack, "click", (event) => {
@@ -2667,6 +3069,8 @@
       toggleRecommended(session);
     } else if (key === "d") {
       toggleDescription(session);
+    } else if (key === "n") {
+      toggleDescription(session, undefined, "comments");
     } else if (key === "b" && session.history.length) {
       previousVideo(session);
     } else if (key === "f") {
