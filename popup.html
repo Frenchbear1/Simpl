@@ -9,6 +9,7 @@
   <body>
     <main>
       <header>
+        <img class="logo" src="icons/icon-32.png" alt="" width="24" height="24">
         <div>
           <h1>Simpl</h1>
           <p id="status">Checking this tab...</p>
@@ -24,6 +25,27 @@
 
       <button id="toggleAds" class="ad-toggle" type="button">Ad Filters On</button>
 
+      <details class="youtube" id="youtubeSection">
+        <summary id="youtubeHeading">
+          <svg class="yt-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 7.2a2.5 2.5 0 0 0-1.76-1.77C18.27 5 12 5 12 5s-6.27 0-7.84.43A2.5 2.5 0 0 0 2.4 7.2C2 8.78 2 12 2 12s0 3.22.4 4.8a2.5 2.5 0 0 0 1.76 1.77C5.73 19 12 19 12 19s6.27 0 7.84-.43a2.5 2.5 0 0 0 1.76-1.77C22 15.22 22 12 22 12s0-3.22-.4-4.8zM10 15V9l5.2 3L10 15z"/></svg>
+          <span>YouTube viewer</span>
+          <svg class="yt-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7.4 8.6 4.6 4.6 4.6-4.6L18 10l-6 6-6-6z"/></svg>
+        </summary>
+        <label class="switch-row" for="youtubePreview">
+          <span>
+            <strong>Open videos in viewer</strong>
+            <small>Click a video to watch it in a large preview instead of leaving the page.</small>
+          </span>
+          <input id="youtubePreview" type="checkbox" role="switch">
+        </label>
+        <label class="switch-row" for="youtubeAdFilters">
+          <span>
+            <strong>Ad filters on YouTube</strong>
+            <small>Other websites keep their filters either way.</small>
+          </span>
+          <input id="youtubeAdFilters" type="checkbox" role="switch">
+        </label>
+      </details>
     </main>
 
     <script src="popup.js"></script>
