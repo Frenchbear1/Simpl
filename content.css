@@ -1398,16 +1398,54 @@ simpl-youtube-preview[data-pending="true"] .simpl-youtube-preview-poster {
   pointer-events: none;
 }
 
-.simpl-youtube-preview-chapter-marks span {
+/* Segmented bar: one segment per chapter, drawn under the (transparent) range. */
+.simpl-youtube-preview-timeline-wrap[data-segmented] .simpl-youtube-preview-timeline,
+.simpl-youtube-preview-timeline-wrap[data-segmented] .simpl-youtube-preview-buffered {
+  background: transparent;
+}
+
+.simpl-youtube-preview-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.simpl-youtube-preview-seg-bar {
   position: absolute;
   top: 50%;
-  width: 3px;
-  height: 7px;
-  margin-left: -1.5px;
-  border-radius: 1px;
-  background: rgba(0, 0, 0, 0.75);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+  right: 2px;
+  left: 0;
+  height: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.2);
   transform: translateY(-50%);
+  transition: height 120ms ease;
+}
+
+.simpl-youtube-preview-seg:last-child .simpl-youtube-preview-seg-bar {
+  right: 0;
+}
+
+.simpl-youtube-preview-seg-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+}
+
+.simpl-youtube-preview-seg-bar i:first-child {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.simpl-youtube-preview-seg-bar i:last-child {
+  background: var(--simpl-accent);
+}
+
+.simpl-youtube-preview-timeline-wrap:hover .simpl-youtube-preview-seg-bar {
+  height: 5px;
+}
+
+.simpl-youtube-preview-timeline-wrap:hover .simpl-youtube-preview-seg[data-hover] .simpl-youtube-preview-seg-bar {
+  height: 8px;
 }
 
 .simpl-youtube-preview-chapter-list {

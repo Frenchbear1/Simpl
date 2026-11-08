@@ -1134,6 +1134,7 @@
       end = 0;
     }
     ui.buffered.style.width = duration > 0 ? `${Math.min(100, (end / duration) * 100)}%` : "0%";
+    session.bufferedEnd = end;
   };
 
   const updateControls = (session) => {
@@ -1159,6 +1160,10 @@
     }
     updateBuffered(session);
     updateChapterLabel(session);
+    paintSegments(
+      session,
+      session.scrubbing && duration > 0 ? duration * (Number(ui.timeline.value) / 1000) : video.currentTime
+    );
     if (SPEEDS.includes(video.playbackRate)) {
       ui.speed.value = String(video.playbackRate);
     }
@@ -1933,18 +1938,46 @@
     const chapters = session.chapters || [];
     const duration = video && Number.isFinite(video.duration) ? video.duration : 0;
     ui.chapterMarks.replaceChildren();
+    session.segments = [];
     session.chapterIndex = -2;
     session.chaptersDrawn = duration;
+    ui.timeline.parentElement.removeAttribute("data-segmented");
     if (!chapters.length || !duration) {
       ui.chapterName.textContent = "";
       return;
     }
-    for (let i = 1; i < chapters.length; i += 1) {
-      if (chapters[i].start < duration) {
-        const tick = document.createElement("span");
-        tick.style.left = `${(chapters[i].start / duration) * 100}%`;
-        ui.chapterMarks.append(tick);
-      }
+    // The bar is split into one segment per chapter, with a small gap between.
+    const starts = chapters.map((chapter) => chapter.start).filter((start) => start < duration);
+    starts.forEach((start, index) => {
+      const end = index + 1 < starts.length ? starts[index + 1] : duration;
+      const segment = document.createElement("span");
+      segment.className = "simpl-youtube-preview-seg";
+      segment.style.left = `${(start / duration) * 100}%`;
+      segment.style.width = `${((end - start) / duration) * 100}%`;
+      const bar = document.createElement("span");
+      bar.className = "simpl-youtube-preview-seg-bar";
+      const buffered = document.createElement("i");
+      const played = document.createElement("i");
+      bar.append(buffered, played);
+      segment.append(bar);
+      ui.chapterMarks.append(segment);
+      session.segments.push({ segment, buffered, played, start, end });
+    });
+    ui.timeline.parentElement.setAttribute("data-segmented", "true");
+    paintSegments(session, video.currentTime);
+  };
+
+  const paintSegments = (session, seconds) => {
+    const segments = session.segments;
+    if (!segments?.length) {
+      return;
+    }
+    const bufferedEnd = session.bufferedEnd || 0;
+    for (const item of segments) {
+      const span = item.end - item.start || 1;
+      const fraction = (value) => Math.max(0, Math.min(1, (value - item.start) / span));
+      item.played.style.width = `${fraction(seconds) * 100}%`;
+      item.buffered.style.width = `${fraction(bufferedEnd) * 100}%`;
     }
   };
 
@@ -2539,6 +2572,9 @@
     }
     const seconds = duration * ratio;
     const chapterIndex = chapterAt(session, seconds);
+    session.segments?.forEach((item, index) => {
+      item.segment.toggleAttribute("data-hover", index === chapterIndex);
+    });
     scrubTime.textContent = chapterIndex >= 0
       ? `${session.chapters[chapterIndex].title} · ${formatTime(seconds)}`
       : formatTime(seconds);
@@ -2757,6 +2793,7 @@
       const seconds = timelineSeconds();
       ui.timeline.style.setProperty("--simpl-progress", `${Number(ui.timeline.value) / 10}%`);
       ui.time.textContent = `${formatTime(seconds)} / ${formatTime(duration)}`;
+      paintSegments(session, seconds);
     });
     on(ui.timeline, "change", () => {
       session.scrubbing = false;
@@ -2772,6 +2809,7 @@
     });
     on(ui.timeline, "pointerleave", () => {
       ui.scrub.hidden = true;
+      session.segments?.forEach((item) => item.segment.removeAttribute("data-hover"));
     });
 
     on(ui.mute, "click", () => {
