@@ -835,7 +835,10 @@
         }
       }
     }
-    return lines.filter(Boolean).join("\n");
+    // YouTube shows at most two lines at a time, but its DOM can still hold
+    // older roll-up lines. Only the newest two are drawn so text never stacks.
+    const current = lines.filter(Boolean).filter((line, index, all) => line !== all[index - 1]);
+    return current.slice(-2).join("\n");
   };
 
   const animateBubble = (bubble, keyframes, options) => {
