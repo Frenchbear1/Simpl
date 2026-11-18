@@ -13,3 +13,6 @@ Thumbs.db
 node_modules/
 *.crx
 *.zip
+
+# Store packages are committed on purpose
+!dist/*.zip
